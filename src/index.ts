@@ -7,8 +7,8 @@ import { existsSync, mkdirSync, createWriteStream, createReadStream, statSync, r
 import * as tar from 'tar';
 import { xz } from '@napi-rs/lzma';
 import { extract as extractZip } from 'zip-lib';
-import { select as inquirerSelect, confirm as inquirerConfirm, input } from '@inquirer/prompts';
 import { Command } from 'commander';
+import * as clack from '@clack/prompts';
 
 // Console colors using ANSI escape codes
 const colors = {
@@ -45,15 +45,16 @@ function setupSignalHandlers() {
   process.on('SIGTERM', gracefulExit);
 }
 
-// Helper function to handle inquirer prompt errors
-function handlePromptError(error: unknown): never {
-  const errorMessage = error instanceof Error ? error.message : String(error);
-  if (errorMessage.includes('force closed')) {
-    console.log(colors.yellow('\n\n👋 Goodbye!'));
+// Helper function to handle clack prompt cancellation
+function handleClackCancel<T>(result: T | symbol): T {
+  if (clack.isCancel(result)) {
+    clack.cancel('Operation cancelled');
     process.exit(0);
   }
-  throw error;
+  return result as T;
 }
+
+// Console colors using ANSI escape codes
 
 // Simple progress bar utility
 function createProgressBar(current: number, total: number, width: number = 40): string {
@@ -127,7 +128,14 @@ class ZigInstaller {
     this.cwd = process.cwd();
     this.ziggyDir = this.getZiggyDir();
     this.binDir = join(this.ziggyDir, 'bin');
-    this.envPath = join(this.ziggyDir, 'env');
+    
+    // Platform-specific env file names
+    if (this.platform === 'windows') {
+      this.envPath = join(this.ziggyDir, 'env.ps1'); // PowerShell script
+    } else {
+      this.envPath = join(this.ziggyDir, 'env'); // Bash/Zsh script
+    }
+    
     this.configPath = join(this.ziggyDir, 'ziggy.toml');
     
     // Ensure directories exist
@@ -206,17 +214,41 @@ class ZigInstaller {
   }
 
   private createEnvFile() {
-    const envContent = `# Ziggy environment file
+    let envContent: string;
+    let instructions: string;
+
+    if (this.platform === 'windows') {
+      // PowerShell script for Windows
+      envContent = `# Ziggy Environment for PowerShell
+# Add this line to your PowerShell profile:
+# . "${this.envPath.replace(/\\/g, '\\\\')}"
+
+$env:PATH = "${this.binDir.replace(/\\/g, '\\\\')};" + $env:PATH
+`;
+      instructions = `Add this to your PowerShell profile:\n. "${this.envPath}"`;
+    } else {
+      // Bash/Zsh script for Unix-like systems
+      envContent = `# Ziggy Environment
 # Add this line to your shell profile (.bashrc, .zshrc, etc.):
-# source ${this.envPath}
+# source "${this.envPath}"
 
 export PATH="${this.binDir}:$PATH"
 `;
+      instructions = `Add this to your shell profile:\nsource "${this.envPath}"`;
+    }
     
     writeFileSync(this.envPath, envContent);
     console.log(colors.green(`✓ Created env file at ${this.envPath}`));
-    console.log(colors.yellow(`\nTo use ziggy-managed Zig versions, add this to your shell profile:`));
-    console.log(colors.cyan(`source ${this.envPath}`));
+    console.log(colors.yellow(`\nTo use ziggy-managed Zig versions:`));
+    console.log(colors.cyan(instructions));
+  }
+
+  private getShellSourceLine(shellInfo: any): string {
+    if (this.platform === 'win32') {
+      return `. "${this.envPath}"`;
+    } else {
+      return `source "${this.envPath}"`;
+    }
   }
 
   private getZiggyDir(): string {
@@ -776,39 +808,6 @@ export PATH="${this.binDir}:$PATH"
     }
   }
 
-  private getZiggyEnvPath(): string {
-    const homeDir = process.env.HOME || process.env.USERPROFILE || '';
-    return join(homeDir, '.ziggy', 'env');
-  }
-
-  private createZiggyEnvFile(zigBinPath: string, version: string): void {
-    const envPath = this.getZiggyEnvPath();
-    
-    // Create .ziggy directory if it doesn't exist
-    if (!existsSync(this.ziggyDir)) {
-      mkdirSync(this.ziggyDir, { recursive: true });
-    }
-    
-    // Create the env file content
-    const envContent = this.platform === 'windows' 
-      ? `# Ziggy Environment - Version ${version}\nset PATH=%PATH%;${zigBinPath}\n`
-      : `# Ziggy Environment - Version ${version}\nexport PATH="$PATH:${zigBinPath}"\n`;
-    
-    // Write the env file
-    const fs = require('fs');
-    fs.writeFileSync(envPath, envContent, 'utf8');
-  }
-
-  private getShellSourceLine(shellInfo: { shell: string, profileFile: string }): string {
-    const envPath = this.getZiggyEnvPath();
-    
-    if (this.platform === 'windows') {
-      return `call "${envPath}"`;
-    } else {
-      return `source "${envPath}"`;
-    }
-  }
-
   private expandHomePath(path: string): string {
     if (path.startsWith('~')) {
       const homeDir = process.env.HOME || process.env.USERPROFILE || '';
@@ -836,47 +835,50 @@ export PATH="${this.binDir}:$PATH"
     const version = await this.getLatestStableVersion();
     const zigBinPath = dirname(join(installPath, `zig-${this.platform}-${this.arch}-${version}`, 'zig'));
     const shellInfo = this.detectShell();
-    const envPath = this.getZiggyEnvPath();
-    const sourceLine = this.getShellSourceLine(shellInfo);
     
     console.log(colors.yellow(`\nDetected shell: ${colors.cyan(shellInfo.shell)}`));
     console.log(colors.yellow('\nZiggy will create an environment file at:'));
-    console.log(colors.cyan(envPath));
+    console.log(colors.cyan(this.envPath));
     
     console.log(colors.yellow('\nWhat would you like to do?'));
-    const choice = await inquirerSelect({
-      message: '',
-      choices: [
-        { name: 'Go back to main menu', value: 'Go back to main menu' },
-        { name: 'Create .ziggy/env file and show manual setup instructions', value: 'Create .ziggy/env file and show manual setup instructions' }
+    const choice = await clack.select({
+      message: 'Choose setup option:',
+      options: [
+        { value: 'back', label: 'Go back to main menu' },
+        { value: 'create', label: 'Create env file and show manual setup instructions' }
       ],
-      theme: { prefix: '' }
+      initialValue: 'create'
     });
     
-    if (choice === 'Create .ziggy/env file and show manual setup instructions') {
+    if (clack.isCancel(choice) || choice === 'back') {
+      return changes;
+    }
+    
+    if (choice === 'create') {
       try {
         // Ask for explicit permission to create .ziggy directory and env file
-        const createZiggy = await inquirerConfirm({
+        const createZiggy = await clack.confirm({
           message: `Create ${this.getZiggyDir()} directory and env file?`,
-          default: true
+          initialValue: true
         });
-        if (!createZiggy) {
+        
+        if (clack.isCancel(createZiggy) || !createZiggy) {
           console.log(colors.yellow('✓ Ziggy environment not created. You can set up PATH manually.'));
           changes.push('User declined to create .ziggy environment');
           return changes;
         }
         
-        // Create the .ziggy/env file
-        this.createZiggyEnvFile(zigBinPath, version);
-        console.log(colors.green(`✓ Created ${envPath}`));
-        changes.push(`Created .ziggy/env file with Zig ${version} PATH`);
+        // Create the env file using the unified method
+        this.createEnvFile();
+        changes.push(`Created env file with Zig ${version} PATH`);
         
         // Show manual setup instructions
         console.log(colors.yellow('\n' + '='.repeat(60)));
         console.log(colors.yellow('📝 MANUAL SETUP REQUIRED'));
         console.log(colors.yellow('='.repeat(60)));
         
-        console.log(colors.yellow('\nTo completed the Zig installation, add this line to your shell profile:'));
+        console.log(colors.yellow('\nTo complete the Zig installation, add this line to your shell profile:'));
+        const sourceLine = this.getShellSourceLine(shellInfo);
         console.log(colors.green(sourceLine));
         
         // Platform-specific instructions
@@ -940,11 +942,11 @@ export PATH="${this.binDir}:$PATH"
     
     if (!existsSync(resolvedPath)) {
       // Ask before creating directory
-      const createDir = await inquirerConfirm({
+      const createDir = await clack.confirm({
         message: `Directory ${resolvedPath} doesn't exist. Create it?`,
-        default: true
+        initialValue: true
       });
-      if (!createDir) {
+      if (clack.isCancel(createDir) || !createDir) {
         throw new Error('Installation cancelled - directory not created');
       }
       mkdirSync(resolvedPath, { recursive: true });
@@ -960,11 +962,11 @@ export PATH="${this.binDir}:$PATH"
     // Check if directory is empty
     const files = readdirSync(resolvedPath);
     if (files.length > 0) {
-      const overwrite = await inquirerConfirm({
+      const overwrite = await clack.confirm({
         message: 'Directory is not empty. Continue?',
-        default: false
+        initialValue: false
       });
-      if (!overwrite) {
+      if (clack.isCancel(overwrite) || !overwrite) {
         throw new Error('Directory not empty');
       }
     }
@@ -973,76 +975,67 @@ export PATH="${this.binDir}:$PATH"
   }
 
   public async run(): Promise<void> {
-    // Print ASCII art and system info
+    // Start the TUI interface
+    await this.runTUI();
+  }
+
+  private async runTUI(): Promise<void> {
+    // Show colorful ASCII art and system info
     console.log(colors.yellow(ZIG_ASCII_ART));
-    console.log(colors.yellow(`Architecture: ${this.arch}`));
-    console.log(colors.yellow(`Platform: ${this.platform}`));
-    console.log(colors.yellow(`OS: ${this.os}`));
-    
-    // Show Ziggy directory info
+    console.log(colors.yellow(`Architecture: ${colors.cyan(this.arch)}`));
+    console.log(colors.yellow(`Platform: ${colors.cyan(this.platform)}`));
+    console.log(colors.yellow(`OS: ${colors.cyan(this.os)}`));
     console.log(colors.yellow(`Ziggy directory: ${colors.cyan(this.ziggyDir)}`));
     
     // Show detected shell info
     const shellInfo = this.detectShell();
-    console.log(colors.yellow(`Shell: ${shellInfo.shell}`));
-    console.log(colors.yellow(`Profile: ${shellInfo.profileFile}`));
+    console.log(colors.yellow(`Shell: ${colors.cyan(shellInfo.shell)}`));
+    console.log(colors.yellow(`Profile: ${colors.cyan(shellInfo.profileFile)}`));
     
     // Show system Zig if detected
     if (this.config.systemZig) {
-      console.log(colors.yellow(`System Zig: ${colors.cyan(this.config.systemZig.version)} at ${this.config.systemZig.path}`));
+      console.log(colors.yellow(`System Zig: ${colors.cyan(this.config.systemZig.version)} at ${colors.gray(this.config.systemZig.path)}`));
     }
     
     // Show current active version
     if (this.config.currentVersion) {
       if (this.config.currentVersion === 'system' && this.config.systemZig) {
-        console.log(colors.yellow(`Current active Zig: ${colors.cyan(this.config.systemZig.version)} (system installation)`));
+        console.log(colors.yellow(`Current active Zig: ${colors.green(this.config.systemZig.version)} ${colors.gray('(system installation)')}`));
       } else {
         const currentInfo = this.config.downloads[this.config.currentVersion];
         if (currentInfo) {
-          console.log(colors.yellow(`Current active Zig: ${colors.cyan(this.config.currentVersion)} (downloaded by ziggy)`));
+          console.log(colors.yellow(`Current active Zig: ${colors.green(this.config.currentVersion)} ${colors.gray('(managed by ziggy)')}`));
         }
       }
     } else {
       console.log(colors.yellow(`Current active Zig: ${colors.red('none set - run "ziggy use" to select one')}`));
-    }
-    
-    // Show latest stable Zig version
-    try {
-      const latestVersion = await this.getLatestStableVersion();
-      console.log(colors.yellow(`Latest stable Zig: ${colors.cyan(latestVersion)}`));
-    } catch (error) {
-      console.log(colors.yellow(`Latest stable Zig: ${colors.red('Unable to fetch')}`));
     }
 
     // Check if ziggy directory exists and setup if needed
     if (!existsSync(this.ziggyDir)) {
       console.log(colors.yellow(`\n🔧 First time setup: Ziggy directory doesn't exist.`));
       
-      try {
-        const createDir = await inquirerConfirm({
-          message: `Create Ziggy directory at ${this.ziggyDir}?`,
-          default: true
-        });
-        
-        if (!createDir) {
-          console.log(colors.red('Setup cancelled. Ziggy needs a directory to manage Zig versions.'));
-          process.exit(1);
-        }
-        
-        mkdirSync(this.ziggyDir, { recursive: true });
-        mkdirSync(join(this.ziggyDir, 'versions'), { recursive: true });
-        console.log(colors.green(`✓ Created Ziggy directory at ${this.ziggyDir}`));
-        
-        // Save initial empty config
-        this.saveConfig();
-        console.log(colors.green(`✓ Initialized ziggy.toml configuration`));
-        
-      } catch (error) {
-        handlePromptError(error);
+      const createDir = await clack.confirm({
+        message: `Create Ziggy directory at ${this.ziggyDir}?`,
+        initialValue: true
+      });
+      
+      if (clack.isCancel(createDir) || !createDir) {
+        clack.cancel('Setup cancelled. Ziggy needs a directory to manage Zig versions.');
+        process.exit(1);
       }
+      
+      mkdirSync(this.ziggyDir, { recursive: true });
+      mkdirSync(join(this.ziggyDir, 'versions'), { recursive: true });
+      mkdirSync(join(this.ziggyDir, 'bin'), { recursive: true });
+      console.log(colors.green(`✓ Created Ziggy directory at ${this.ziggyDir}`));
+      
+      // Save initial empty config
+      this.saveConfig();
+      console.log(colors.green(`✓ Initialized ziggy.toml configuration`));
     }
 
-    // Show installed versions from config
+    // Show installed versions if any
     const installedVersions = Object.keys(this.config.downloads);
     if (installedVersions.length > 0) {
       console.log(colors.yellow(`\n📦 Installed versions:`));
@@ -1050,9 +1043,15 @@ export PATH="${this.binDir}:$PATH"
         const info = this.config.downloads[version];
         if (!info) continue;
         
-        const statusColor = info.status === 'completed' ? colors.green : 
-                           info.status === 'failed' ? colors.red : colors.yellow;
-        console.log(colors.cyan(`• ${version} ${statusColor(`[${info.status}]`)}`));
+        // Only show completed versions, with status indicators for others
+        if (info.status === 'completed') {
+          const isCurrent = this.config.currentVersion === version ? colors.green(' ← current') : '';
+          console.log(colors.cyan(`• ${version}${isCurrent}`));
+        } else if (info.status === 'downloading') {
+          console.log(colors.yellow(`• ${version} [downloading...]`));
+        } else if (info.status === 'failed') {
+          console.log(colors.red(`• ${version} [failed]`));
+        }
       }
     } else {
       console.log(colors.yellow(`\n📦 No Zig versions installed yet`));
@@ -1060,83 +1059,136 @@ export PATH="${this.binDir}:$PATH"
 
     console.log(''); // Add spacing
 
-    try {
+    // Main menu loop
+    while (true) {
       const choices = [
-        { name: 'Download latest stable Zig', value: 'download-latest' },
-        { name: 'Download specific Zig version', value: 'download-specific' },
-        { name: 'List installed Zig versions', value: 'list-versions' }
+        { value: 'download-latest', label: 'Download latest stable Zig' },
+        { value: 'download-specific', label: 'Download specific Zig version or master branch' },
+        { value: 'list-versions', label: 'List installed Zig versions' }
       ];
 
       // Add use command if versions are available
       const hasVersions = Object.keys(this.config.downloads).length > 0 || this.config.systemZig;
       if (hasVersions) {
-        choices.splice(3, 0, { name: 'Use specific Zig version', value: 'use-version' });
+        choices.push({ value: 'use-version', label: 'Switch Zig version' });
       }
-      
-      choices.push({ name: 'Exit', value: 'exit' });
 
-      const action = await inquirerSelect({
-        message: 'What do you want to do?',
-        choices,
-        theme: {
-          prefix: '',  // Remove the default ? prefix
-          style: {
-            message: (text: string) => colors.cyan(text)
-          }
-        }
-      });
-      
-      switch (action) {
-        case 'download-latest':
-          await this.handleDownloadLatest();
-          return;
-        case 'download-specific':
-          await this.handleDownloadSpecific();
-          return;
-        case 'list-versions':
-          await this.listVersions();
-          return;
-        case 'use-version':
-          await this.handleUseCommand();
-          return;
-        case 'exit':
-          console.log(colors.green('Goodbye!'));
-          process.exit(0);
+      // Add clean command if there are versions to clean
+      const hasDownloadedVersions = Object.keys(this.config.downloads).length > 0;
+      if (hasDownloadedVersions) {
+        choices.push({ value: 'clean', label: 'Clean up Zig installations' });
       }
-    } catch (error) {
-      handlePromptError(error);
+
+      choices.push({ value: 'q', label: 'Quit' });
+
+      const action = await clack.select({
+        message: colors.cyan('What would you like to do?'),
+        options: choices,
+        initialValue: 'download-latest'
+      });
+
+      if (clack.isCancel(action) || action === 'q') {
+        console.log(colors.green('👋 Goodbye!'));
+        process.exit(0);
+      }
+
+      try {
+        switch (action) {
+          case 'download-latest':
+            await this.handleDownloadLatestTUI();
+            break;
+          case 'download-specific':
+            await this.handleDownloadSpecificTUI();
+            break;
+          case 'list-versions':
+            await this.listVersionsTUI();
+            break;
+          case 'use-version':
+            await this.handleUseCommandTUI();
+            break;
+          case 'clean':
+            await this.handleCleanTUI();
+            break;
+        }
+      } catch (error) {
+        if (clack.isCancel(error)) {
+          // User pressed Ctrl+C during an operation
+          console.log(colors.yellow('\n👋 Goodbye!'));
+          process.exit(0);
+        }
+        console.log(colors.red(`Error: ${error instanceof Error ? error.message : String(error)}`));
+        
+        // Ask if user wants to continue
+        const continueChoice = await clack.confirm({
+          message: 'Would you like to return to the main menu?',
+          initialValue: true
+        });
+        
+        if (clack.isCancel(continueChoice) || !continueChoice) {
+          console.log(colors.green('👋 Goodbye!'));
+          process.exit(0);
+        }
+      }
     }
   }
 
-  private async handleDownloadLatest(): Promise<void> {
+  private async handleDownloadLatestTUI(): Promise<void> {
     const version = await this.getLatestStableVersion();
     await this.downloadWithVersion(version);
   }
 
-  private async handleDownloadSpecific(): Promise<void> {
-    const availableVersions = await this.getAvailableVersions();
+  private async handleDownloadSpecificTUI(): Promise<void> {
+    const spinner = clack.spinner();
+    spinner.start('Fetching available versions...');
     
+    let availableVersions: string[];
     try {
-      const version = await inquirerSelect({
-        message: 'Select Zig version:',
-        choices: availableVersions.map(v => ({ name: v, value: v })),
-        pageSize: 15,
-        theme: { prefix: '' }
-      });
-      await this.downloadWithVersion(version);
+      availableVersions = await this.getAvailableVersions();
+      spinner.stop('Available versions loaded');
     } catch (error) {
-      handlePromptError(error);
+      spinner.stop('Failed to fetch versions');
+      clack.log.error('Could not fetch available versions');
+      return;
     }
+    
+    // Add navigation options to the version choices, with master branch at the top
+    const versionChoices = [
+      { value: 'back', label: '← Back to main menu' },
+      { value: 'quit', label: 'Quit' },
+      { value: 'master', label: 'master (development branch)', hint: 'Latest development build' },
+      ...availableVersions.map(v => ({ value: v, label: v }))
+    ];
+    
+    const version = await clack.select({
+      message: 'Select Zig version:',
+      options: versionChoices,
+      initialValue: 'master'
+    });
+    
+    if (clack.isCancel(version)) {
+      return;
+    }
+    
+    if (version === 'back') {
+      return; // Go back to main menu
+    }
+    
+    if (version === 'quit') {
+      console.log(colors.green('👋 Goodbye!'));
+      process.exit(0);
+    }
+    
+    await this.downloadWithVersion(version);
   }
 
-  public async handleUseCommand(): Promise<void> {
-    const choices = [];
+  public async handleUseCommandTUI(): Promise<void> {
+    const versionChoices = [];
     
     // Add system zig if available (show first)
     if (this.config.systemZig) {
-      choices.push({ 
-        name: `${this.config.systemZig.version} (system installation)`, 
-        value: 'system' 
+      versionChoices.push({ 
+        value: 'system',
+        label: `${this.config.systemZig.version} (system installation)` 
       });
     }
     
@@ -1147,45 +1199,88 @@ export PATH="${this.binDir}:$PATH"
     });
     
     for (const version of availableVersions) {
+      const isCurrent = this.config.currentVersion === version ? ' (current)' : '';
+      versionChoices.push({ 
+        value: version,
+        label: `${version} (downloaded by ziggy)${isCurrent}` 
+      });
+    }
+    
+    if (versionChoices.length === 0) {
+      clack.log.warn('No Zig versions available to use. Download a version first.');
+      return;
+    }
+    
+    // Add navigation options
+    const choices = [
+      { value: 'back', label: '← Back to main menu' },
+      { value: 'quit', label: 'Quit' },
+      ...versionChoices
+    ];
+    
+    const selectedVersion = await clack.select({
+      message: 'Select Zig version to use:',
+      options: choices,
+      initialValue: versionChoices.length > 0 ? versionChoices[0]?.value || 'back' : 'back'
+    });
+    
+    if (clack.isCancel(selectedVersion)) {
+      return;
+    }
+    
+    if (selectedVersion === 'back') {
+      return; // Go back to main menu
+    }
+    
+    if (selectedVersion === 'quit') {
+      console.log(colors.green('👋 Goodbye!'));
+      process.exit(0);
+    }
+    
+    await this.useVersion(selectedVersion);
+  }
+
+  public async handleUseCommand(): Promise<void> {
+    const choices = [];
+    
+    // Add system zig if available (show first)
+    if (this.config.systemZig) {
       choices.push({ 
-        name: `${version} (downloaded by ziggy)`, 
-        value: version 
+        value: 'system',
+        label: `${this.config.systemZig.version} (system installation)` 
+      });
+    }
+    
+    // Add installed ziggy versions (only non-system versions)
+    const availableVersions = Object.keys(this.config.downloads).filter(v => {
+      const info = this.config.downloads[v];
+      return info?.status === 'completed' && !info.isSystemWide && v !== 'system';
+    });
+    
+    for (const version of availableVersions) {
+      const isCurrent = this.config.currentVersion === version ? ' (current)' : '';
+      choices.push({ 
+        value: version,
+        label: `${version} (downloaded by ziggy)${isCurrent}` 
       });
     }
     
     if (choices.length === 0) {
-      console.log(colors.red('No Zig versions available. Download one first.'));
+      clack.log.warn('No Zig versions available to use. Download a version first.');
       return;
     }
     
-    try {
-      const selectedVersion = await inquirerSelect({
-        message: 'Select Zig version to use:',
-        choices,
-        theme: { prefix: '' }
-      });
-      
-      if (selectedVersion === 'system') {
-        // Use system zig
-        if (this.config.systemZig) {
-          await this.createSymlink(this.config.systemZig.path, 'system');
-          // Just track that we're using system version, don't add to downloads
-          this.config.currentVersion = 'system';
-          console.log(colors.green(`✓ Now using system Zig ${this.config.systemZig.version}`));
-        }
-      } else {
-        // Use ziggy managed version
-        const info = this.config.downloads[selectedVersion];
-        if (info) {
-          await this.createSymlink(info.path, selectedVersion);
-          console.log(colors.green(`✓ Now using Zig ${selectedVersion}`));
-        }
-      }
-      
-      this.saveConfig();
-    } catch (error) {
-      handlePromptError(error);
+    const selectedVersion = await clack.select({
+      message: 'Select Zig version to use:',
+      options: choices,
+      initialValue: choices.length > 0 ? choices[0]?.value || 'back' : 'back'
+    });
+    
+    if (clack.isCancel(selectedVersion)) {
+      return;
     }
+    
+    await this.useVersion(selectedVersion);
   }
 
   public async listVersions(): Promise<void> {
@@ -1227,26 +1322,323 @@ export PATH="${this.binDir}:$PATH"
     console.log('');
   }
 
+  private async useVersion(selectedVersion: string): Promise<void> {
+    if (selectedVersion === 'system') {
+      // Use system zig
+      if (this.config.systemZig) {
+        await this.createSymlink(this.config.systemZig.path, 'system');
+        // Just track that we're using system version, don't add to downloads
+        this.config.currentVersion = 'system';
+        clack.log.success(`Now using system Zig ${this.config.systemZig.version}`);
+      }
+    } else {
+      // Use ziggy managed version
+      const info = this.config.downloads[selectedVersion];
+      if (info) {
+        await this.createSymlink(info.path, selectedVersion);
+        this.config.currentVersion = selectedVersion;
+        clack.log.success(`Now using Zig ${selectedVersion}`);
+      }
+    }
+    
+    this.saveConfig();
+  }
+
+  public async listVersionsTUI(): Promise<void> {
+    const choices = [];
+    
+    // Add system zig if available (show first)
+    if (this.config.systemZig) {
+      const isCurrent = this.config.currentVersion === 'system' ? ' ← current' : '';
+      choices.push(`System: ${this.config.systemZig.version} at ${this.config.systemZig.path}${isCurrent}`);
+    }
+    
+    // Add installed ziggy versions
+    const availableVersions = Object.keys(this.config.downloads).filter(v => {
+      const info = this.config.downloads[v];
+      return info?.status === 'completed' && v !== 'system';
+    });
+    
+    for (const version of availableVersions) {
+      const info = this.config.downloads[version];
+      if (info?.status === 'completed') {
+        const isCurrent = this.config.currentVersion === version ? ' ← current' : '';
+        choices.push(`Ziggy: ${version} at ${info.path}${isCurrent}`);
+      }
+    }
+    
+    if (choices.length === 0) {
+      clack.log.warn('No Zig versions installed');
+      return;
+    }
+    
+    clack.note(choices.join('\n'), 'Available Zig versions');
+    
+    const action = await clack.select({
+      message: 'What would you like to do?',
+      options: [
+        { value: 'back', label: '← Back to main menu' },
+        { value: 'quit', label: 'Quit' }
+      ],
+      initialValue: 'back'
+    });
+    
+    if (clack.isCancel(action) || action === 'back') {
+      return; // Go back to main menu
+    }
+    
+    if (action === 'quit') {
+      console.log(colors.green('👋 Goodbye!'));
+      process.exit(0);
+    }
+  }
+
+  public async handleCleanTUI(): Promise<void> {
+    const downloadedVersions = Object.keys(this.config.downloads).filter(v => {
+      const info = this.config.downloads[v];
+      return info?.status === 'completed' && v !== 'system';
+    });
+
+    if (downloadedVersions.length === 0) {
+      clack.log.warn('No Zig versions to clean (only system Zig found)');
+      return;
+    }
+
+    // Show current versions
+    const versionsList = downloadedVersions
+      .map(v => {
+        const isCurrent = this.config.currentVersion === v ? ' ← current' : '';
+        return `• ${v}${isCurrent}`;
+      })
+      .join('\n');
+    
+    clack.note(versionsList, 'Installed Zig versions (managed by ziggy)');
+
+    const choices = [
+      { value: 'back', label: '← Back to main menu' },
+      { value: 'quit', label: 'Quit' },
+      { value: 'clean-all', label: 'Clean everything' }
+    ];
+
+    // Add option to keep current version if there is one
+    if (this.config.currentVersion && this.config.currentVersion !== 'system') {
+      choices.push({ 
+        value: 'clean-except-current', 
+        label: `Clean all except current active version (${this.config.currentVersion})` 
+      });
+    }
+
+    // Add option to select which version to keep
+    if (downloadedVersions.length > 1) {
+      choices.push({ value: 'select-keep', label: 'Select which version to keep' });
+    }
+
+    const action = await clack.select({
+      message: 'Choose cleanup option: (Only ziggy managed installations will be affected)',
+      options: choices,
+      initialValue: 'back'
+    });
+
+    if (clack.isCancel(action) || action === 'back') {
+      return;
+    }
+
+    if (action === 'quit') {
+      console.log(colors.green('👋 Goodbye!'));
+      process.exit(0);
+    }
+
+    switch (action) {
+      case 'clean-all':
+        await this.cleanAllVersions();
+        break;
+      case 'clean-except-current':
+        await this.cleanExceptCurrent();
+        break;
+      case 'select-keep':
+        await this.selectVersionToKeep();
+        break;
+    }
+  }
+
+  private async cleanAllVersions(): Promise<void> {
+    const downloadedVersions = Object.keys(this.config.downloads);
+    
+    const confirm = await clack.confirm({
+      message: `Are you sure you want to delete all ${downloadedVersions.length} Zig versions? This cannot be undone.`,
+      initialValue: false
+    });
+
+    if (clack.isCancel(confirm) || !confirm) {
+      clack.log.info('Cleanup cancelled');
+      return;
+    }
+
+    const spinner = clack.spinner();
+    spinner.start('Cleaning up Zig installations...');
+
+    let cleaned = 0;
+    for (const version of downloadedVersions) {
+      const info = this.config.downloads[version];
+      if (info && existsSync(info.path)) {
+        try {
+          rmSync(info.path, { recursive: true, force: true });
+          cleaned++;
+        } catch (error) {
+          console.log(colors.red(`Failed to remove ${version}: ${error}`));
+        }
+      }
+    }
+
+    // Clear downloads config
+    this.config.downloads = {};
+    this.config.currentVersion = this.config.systemZig ? 'system' : undefined;
+    this.saveConfig();
+
+    // Remove symlink if it exists
+    const symlink = join(this.ziggyDir, 'bin', 'zig');
+    if (existsSync(symlink)) {
+      try {
+        rmSync(symlink);
+      } catch (error) {
+        // Ignore errors removing symlink
+      }
+    }
+
+    spinner.stop(`Cleaned up ${cleaned} Zig installations`);
+    clack.log.success('All Zig versions removed successfully');
+    
+    if (this.config.systemZig) {
+      clack.log.info(`Using system Zig: ${this.config.systemZig.version}`);
+    } else {
+      clack.log.warn('No Zig version is currently active');
+    }
+  }
+
+  private async cleanExceptCurrent(): Promise<void> {
+    const currentVersion = this.config.currentVersion;
+    if (!currentVersion || currentVersion === 'system') {
+      clack.log.error('No current version set or using system version');
+      return;
+    }
+
+    const versionsToDelete = Object.keys(this.config.downloads).filter(v => v !== currentVersion);
+    
+    if (versionsToDelete.length === 0) {
+      clack.log.info('No other versions to clean');
+      return;
+    }
+
+    const confirm = await clack.confirm({
+      message: `Delete ${versionsToDelete.length} versions (keeping ${currentVersion})?`,
+      initialValue: false
+    });
+
+    if (clack.isCancel(confirm) || !confirm) {
+      clack.log.info('Cleanup cancelled');
+      return;
+    }
+
+    const spinner = clack.spinner();
+    spinner.start('Cleaning up old Zig installations...');
+
+    let cleaned = 0;
+    for (const version of versionsToDelete) {
+      const info = this.config.downloads[version];
+      if (info && existsSync(info.path)) {
+        try {
+          rmSync(info.path, { recursive: true, force: true });
+          delete this.config.downloads[version];
+          cleaned++;
+        } catch (error) {
+          console.log(colors.red(`Failed to remove ${version}: ${error}`));
+        }
+      }
+    }
+
+    this.saveConfig();
+    spinner.stop(`Cleaned up ${cleaned} old installations`);
+    clack.log.success(`Kept ${currentVersion} as active version`);
+  }
+
+  private async selectVersionToKeep(): Promise<void> {
+    const downloadedVersions = Object.keys(this.config.downloads).filter(v => {
+      const info = this.config.downloads[v];
+      return info?.status === 'completed' && v !== 'system';
+    });
+
+    const versionChoices = [
+      { value: 'back', label: '← Back to cleanup menu' },
+      ...downloadedVersions.map(v => ({
+        value: v,
+        label: `${v}${this.config.currentVersion === v ? ' (current)' : ''}`
+      }))
+    ];
+
+    const versionToKeep = await clack.select({
+      message: 'Select which version to keep (all others will be deleted):',
+      options: versionChoices,
+      initialValue: this.config.currentVersion || downloadedVersions[0]
+    });
+
+    if (clack.isCancel(versionToKeep) || versionToKeep === 'back') {
+      return;
+    }
+
+    const versionsToDelete = downloadedVersions.filter(v => v !== versionToKeep);
+    
+    const confirm = await clack.confirm({
+      message: `Keep ${versionToKeep} and delete ${versionsToDelete.length} other versions?`,
+      initialValue: false
+    });
+
+    if (clack.isCancel(confirm) || !confirm) {
+      clack.log.info('Cleanup cancelled');
+      return;
+    }
+
+    const spinner = clack.spinner();
+    spinner.start('Cleaning up selected Zig installations...');
+
+    let cleaned = 0;
+    for (const version of versionsToDelete) {
+      const info = this.config.downloads[version];
+      if (info && existsSync(info.path)) {
+        try {
+          rmSync(info.path, { recursive: true, force: true });
+          delete this.config.downloads[version];
+          cleaned++;
+        } catch (error) {
+          console.log(colors.red(`Failed to remove ${version}: ${error}`));
+        }
+      }
+    }
+
+    // Set the kept version as current
+    this.config.currentVersion = versionToKeep;
+    await this.createSymlink(this.config.downloads[versionToKeep]!.path, versionToKeep);
+    this.saveConfig();
+
+    spinner.stop(`Cleaned up ${cleaned} installations`);
+    clack.log.success(`Kept ${versionToKeep} and set it as active version`);
+  }
+
   private async downloadWithVersion(version: string): Promise<void> {
     const installPath = join(this.ziggyDir, 'versions', version);
     
     // Check if already installed
     const existing = this.config.downloads[version];
     if (existing && existing.status === 'completed') {
-      console.log(colors.yellow(`\n⚠ Zig ${version} is already installed at ${existing.path}`));
+      clack.log.warn(`Zig ${version} is already installed at ${existing.path}`);
       
-      try {
-        const reinstall = await inquirerConfirm({
-          message: 'Do you want to reinstall it?',
-          default: false
-        });
-        
-        if (!reinstall) {
-          console.log(colors.green('Installation skipped.'));
-          return;
-        }
-      } catch (error) {
-        handlePromptError(error);
+      const reinstall = await clack.confirm({
+        message: 'Do you want to reinstall it?',
+        initialValue: false
+      });
+      
+      if (clack.isCancel(reinstall) || !reinstall) {
+        clack.log.info('Installation skipped.');
+        return;
       }
     }
 
@@ -1360,6 +1752,19 @@ export PATH="${this.binDir}:$PATH"
       try {
         const installer = new ZigInstaller();
         await installer.listVersions();
+      } catch (error) {
+        console.error(colors.red('Error:'), error);
+        process.exit(1);
+      }
+    });
+
+  program
+    .command('clean')
+    .description('Clean up Zig installations')
+    .action(async () => {
+      try {
+        const installer = new ZigInstaller();
+        await installer.handleCleanTUI();
       } catch (error) {
         console.error(colors.red('Error:'), error);
         process.exit(1);
