@@ -21,8 +21,11 @@ First install a zig of your choice following the prompts. By default ziggy works
 # If installed globally then just 
 ziggy # or ziggy -h to check out available subcommands
 
-# Use without installing (run directly)
+# Use without installing (run directly with Bunx)
 bunx @weezy20/ziggy
+```
+
+**Note:** This tool requires Bun and works best with `bunx`. While the package is available on npm, it requires Bun runtime to execute.
 ```
 Or if you clone this repo: 
 

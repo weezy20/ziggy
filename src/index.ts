@@ -1,6 +1,5 @@
 #!/usr/bin/env bun
 
-import { $ } from 'bun';
 import { ZIG_ASCII_ART } from './ascii-art';
 import { join, resolve, dirname } from 'path';
 import { existsSync, mkdirSync, createWriteStream, createReadStream, statSync, readdirSync, rmSync, appendFileSync, readFileSync, writeFileSync } from 'fs';
