@@ -36,3 +36,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # Local dev .zig_install
 .zig_install
 ziggy
+ziggy.exe
+
+#
+.*

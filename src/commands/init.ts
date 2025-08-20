@@ -3,15 +3,7 @@ import { existsSync } from 'fs';
 import * as clack from '@clack/prompts';
 import { cloneTemplateRepository } from '../utils/template';
 import { colors } from '../utils/colors';
-
-// Helper function to handle clack prompt cancellation
-function handleClackCancel<T>(result: T | symbol): T {
-  if (clack.isCancel(result)) {
-    clack.cancel('Operation cancelled');
-    process.exit(0);
-  }
-  return result;
-}
+import { handleClackCancel } from '../utils/clack-helpers';
 
 /**
  * Initialize a new Zig project using the template

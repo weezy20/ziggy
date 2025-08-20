@@ -2,19 +2,11 @@ import * as clack from '@clack/prompts';
 import { ZigInstaller } from '../index';
 import { colors } from '../utils/colors';
 
-// Helper function to handle clack prompt cancellation
-function handleClackCancel<T>(result: T | symbol): T {
-  if (clack.isCancel(result)) {
-    clack.cancel('Operation cancelled');
-    process.exit(0);
-  }
-  return result as T;
-}
-
 /**
  * Use command - select which Zig version to use
+ * @param includeNavigation - Whether to include back/quit options for TUI mode
  */
-export async function useCommand(): Promise<void> {
+export async function useCommand(includeNavigation = false): Promise<boolean> {
   const installer = new ZigInstaller();
   
   const choices = [];
@@ -43,7 +35,15 @@ export async function useCommand(): Promise<void> {
   
   if (choices.length === 0) {
     clack.log.warn('No Zig versions available to use. Download a version first.');
-    return;
+    return false;
+  }
+  
+  // Add navigation options for TUI mode
+  if (includeNavigation) {
+    choices.unshift(
+      { value: 'back', label: '← Back to main menu' },
+      { value: 'quit', label: 'Quit' }
+    );
   }
   
   const selectedVersion = await clack.select({
@@ -53,8 +53,20 @@ export async function useCommand(): Promise<void> {
   });
   
   if (clack.isCancel(selectedVersion)) {
-    return;
+    return false;
   }
   
-  await installer.useVersion(selectedVersion);
+  if (includeNavigation) {
+    if (selectedVersion === 'back') {
+      return false; // Go back to main menu
+    }
+    
+    if (selectedVersion === 'quit') {
+      console.log(colors.green('👋 Goodbye!'));
+      process.exit(0);
+    }
+  }
+  
+  installer.useVersion(selectedVersion);
+  return true;
 }

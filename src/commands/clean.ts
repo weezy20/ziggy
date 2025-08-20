@@ -1,6 +1,5 @@
 import * as clack from '@clack/prompts';
 import { ZigInstaller } from '../index';
-import { colors } from '../utils/colors';
 
 /**
  * Clean command - cleanup Zig installations
