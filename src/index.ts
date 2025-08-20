@@ -24,7 +24,7 @@ let currentDownload: { cleanup?: () => Promise<void> } | null = null;
 
 function setupSignalHandlers() {
   const gracefulExit = async () => {
-    console.log(colors.yellow('\n\n🛑 Shutting down gracefully...'));
+    console.log(colors.yellow('\n\n🛑Interrupt: Shutting down ...'));
     
     // Clean up any ongoing downloads
     if (currentDownload?.cleanup) {
@@ -978,18 +978,48 @@ export PATH="${this.binDir}:$PATH"
     await this.runTUI();
   }
 
-  private async runTUI(): Promise<void> {
-    // Show colorful ASCII art and system info
-    console.log(colors.yellow(ZIG_ASCII_ART));
-    console.log(colors.yellow(`Architecture: ${colors.cyan(this.arch)}`));
-    console.log(colors.yellow(`Platform: ${colors.cyan(this.platform)}`));
-    console.log(colors.yellow(`OS: ${colors.cyan(this.os)}`));
-    console.log(colors.yellow(`Ziggy directory: ${colors.cyan(this.ziggyDir)}`));
+  private displayHeaderWithInfo(): void {
+    // Split ASCII art into lines
+    const asciiLines = ZIG_ASCII_ART.trim().split('\n');
     
-    // Show detected shell info
+    // Prepare system info lines
     const shellInfo = this.detectShell();
-    console.log(colors.yellow(`Shell: ${colors.cyan(shellInfo.shell)}`));
-    console.log(colors.yellow(`Profile: ${colors.cyan(shellInfo.profileFile)}`));
+    const systemInfo = [
+      `Architecture: ${colors.cyan(this.arch)}`,
+      `Platform: ${colors.cyan(this.platform)}`,
+      `OS: ${colors.cyan(this.os)}`,
+      `Ziggy directory: ${colors.cyan(this.ziggyDir)}`,
+      `Shell: ${colors.cyan(shellInfo.shell)}`,
+      `Profile: ${colors.cyan(shellInfo.profileFile)}`
+    ];
+
+    // Find the longest ASCII line to determine padding
+    const maxAsciiWidth = Math.max(...asciiLines.map(line => line.length));
+    const padding = 4; // Space between ASCII and info
+
+    // Display ASCII art with system info side by side
+    const maxLines = Math.max(asciiLines.length, systemInfo.length);
+    
+    for (let i = 0; i < maxLines; i++) {
+      const asciiLine = asciiLines[i] || '';
+      const infoLine = systemInfo[i] || '';
+      
+      // Pad ASCII line to consistent width
+      const paddedAscii = asciiLine.padEnd(maxAsciiWidth);
+      
+      if (infoLine) {
+        console.log(colors.yellow(paddedAscii) + ' '.repeat(padding) + colors.yellow(infoLine));
+      } else {
+        console.log(colors.yellow(paddedAscii));
+      }
+    }
+    
+    console.log(''); // Add spacing after header
+  }
+
+  private async runTUI(): Promise<void> {
+    // Show colorful ASCII art and system info side by side
+    this.displayHeaderWithInfo();
     
     // Show system Zig if detected
     if (this.config.systemZig) {
