@@ -6,10 +6,13 @@ A fast, ez to use, Zig programming language installer and version manager powere
 
 First install a `zig` following the prompts: 
 
+First install a `zig` following the prompts: 
+
 ```bash
 # TODO:
 bunx ziggy
 ```
+Or if you clone this repo: 
 Or if you clone this repo: 
 
 ```bash
@@ -50,4 +53,4 @@ set PATH=%USERPROFILE%\.ziggy\bin;%PATH%
 ```
 
 ## Uninstallation
-Ziggy doesn't install anything on your system except the contents of `ZIGGY_DIR`. You can delete the folder and be done with it.
+Ziggy doesn't install anything on your system except the contents of `ZIGGY_DIR`. You can delete the folder and be done with it. If you want to clean up zig installations use `ziggy clean`. 
