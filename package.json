@@ -1,8 +1,33 @@
 {
-  "name": "ziggy",
+  "name": "@weezy20/ziggy",
+  "version": "1.0.0",
+  "description": "A fast, easy to use, Zig programming language installer and version manager powered by Bun",
+  "keywords": [
+    "zig",
+    "installer",
+    "version-manager",
+    "ziggy",
+    "zig-lang"
+  ],
+  "author": "weezy20",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/weezy20/ziggy.git"
+  },
+  "bugs": {
+    "url": "https://github.com/weezy20/ziggy/issues"
+  },
+  "homepage": "https://github.com/weezy20/ziggy#readme",
+  "bin": {
+    "ziggy": "src/index.ts"
+  },
+  "files": [
+    "src/",
+    "README.md"
+  ],
   "module": "src/index.ts",
   "type": "module",
-  "private": true,
   "scripts": {
     "start": "bun run src/index.ts",
     "build": "bun build src/index.ts --compile --outfile ziggy"

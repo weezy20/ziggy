@@ -5,13 +5,24 @@ A fast, ez to use, Zig programming language installer and version manager powere
 ## Prerequisites: 
 [bun](https://bun.com/)
 
+## Installation
+
+You can install ziggy globally using Bun:
+
+```bash
+bun install -g @weezy20/ziggy
+```
+
 ## Usage
 
 First install a zig of your choice following the prompts. By default ziggy works with this folder `$HOME/.ziggy` but you can specify a different path with `ZIGGY_DIR` env var. 
 
 ```bash
-# Use without downloading anything
-bunx ziggy
+# If installed globally then just 
+ziggy # or ziggy -h to check out available subcommands
+
+# Use without installing (run directly)
+bunx @weezy20/ziggy
 ```
 Or if you clone this repo: 
 
