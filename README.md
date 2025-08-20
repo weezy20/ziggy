@@ -75,3 +75,5 @@ ziggy init my-awesome-project
 
 ## Uninstallation
 Ziggy doesn't install anything on your system except the contents of `ZIGGY_DIR`. You can delete the folder and be done with it. If you want to clean up zig installations use `ziggy clean`. 
+
+If you used `bun install -g` to install ziggy then you can use `bun remove -g @weezy20/ziggy` to undo the same.
