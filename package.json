@@ -1,0 +1,24 @@
+{
+  "name": "zig-installer",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "build": "bun build src/index.ts --compile --outfile zig-installer"
+  },
+  "dependencies": {
+    "@inquirer/prompts": "^7.8.3",
+    "@napi-rs/lzma": "^1.4.0",
+    "commander": "^14.0.0",
+    "tar": "^7.4.3",
+    "zip-lib": "1.1.2"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/tar": "^6.1.13"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
