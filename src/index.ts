@@ -247,6 +247,82 @@ export PATH="${this.binDir}:$PATH"
     }
   }
 
+  /**
+   * Check if ziggy is already properly configured in the user's environment
+   * Returns true if ziggy/bin directory is already in PATH and working
+   */
+  private isZiggyAlreadyConfigured(): boolean {
+    const pathEnv = process.env.PATH || '';
+    const pathSeparator = this.platform === 'win32' ? ';' : ':';
+    const pathDirs = pathEnv.split(pathSeparator);
+    
+    // Check if ziggy bin directory is already in PATH
+    const ziggyBinNormalized = resolve(this.binDir);
+    let inPath = false;
+    
+    for (const dir of pathDirs) {
+      if (!dir.trim()) continue; // Skip empty entries
+      
+      try {
+        const normalizedDir = resolve(dir.trim());
+        if (normalizedDir === ziggyBinNormalized) {
+          inPath = true;
+          break;
+        }
+      } catch (_error) {
+        // Skip invalid paths
+        continue;
+      }
+    }
+    
+    // If not in PATH, definitely not configured
+    if (!inPath) {
+      return false;
+    }
+    
+    // Additional verification: check if zig command is accessible and from ziggy
+    try {
+      const which = this.platform === 'win32' ? 'where' : 'which';
+      const result = Bun.spawnSync([which, 'zig'], { 
+        stdout: 'pipe',
+        stderr: 'pipe'
+      });
+      
+      if (result.exitCode === 0) {
+        const zigPath = result.stdout.toString().trim();
+        // Handle multiple paths returned by which/where
+        const firstZigPath = zigPath.split('\n')[0]?.trim() || zigPath;
+        
+        // Check if the found zig is from ziggy's bin directory
+        const ziggyZigPath = join(this.binDir, this.platform === 'win32' ? 'zig.exe' : 'zig');
+        
+        try {
+          const resolvedZigPath = resolve(firstZigPath);
+          const resolvedZiggyPath = resolve(ziggyZigPath);
+          return resolvedZigPath === resolvedZiggyPath;
+        } catch (_error) {
+          // If path resolution fails, fall back to string comparison
+          return firstZigPath.includes(this.binDir) || firstZigPath.startsWith(ziggyBinNormalized);
+        }
+      }
+    } catch (_error) {
+      // If we can't run which/where, assume it's configured if in PATH
+      return inPath;
+    }
+    
+    // If we get here, ziggy/bin is in PATH but zig command is not accessible
+    // This might happen if the symlink is missing or broken
+    return false;
+  }
+
+  /**
+   * Check if env file exists and might be configured
+   * Returns true if env file exists (user might need to source it)
+   */
+  private hasEnvFileConfigured(): boolean {
+    return existsSync(this.envPath);
+  }
+
   private getZiggyDir(): string {
     // Check environment variable first
     const envDir = process.env.ZIGGY_DIR;
@@ -652,7 +728,7 @@ export PATH="${this.binDir}:$PATH"
         console.log(colors.yellow(`\nExtracting ${tarPath} to ${installPath}...`));
 
         if (ext === 'tar.xz') {
-          this.extractTarXz(tarPath, installPath);
+          await this.extractTarXz(tarPath, installPath);
         } else if (ext === 'zip') {
           await this.extractZip(tarPath, installPath);
         } else {
@@ -681,7 +757,7 @@ export PATH="${this.binDir}:$PATH"
     }
   }
 
-  private extractTarXz(filePath: string, outputPath: string): void {
+  private extractTarXz(filePath: string, outputPath: string): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
         const inputStream = createReadStream(filePath);
@@ -1850,6 +1926,23 @@ export PATH="${this.binDir}:$PATH"
   }
 
   private showSetupInstructions(): void {
+    // Check if ziggy is already properly configured
+    if (this.isZiggyAlreadyConfigured()) {
+      console.log(colors.green('\n✅ Ziggy is already configured in your environment!'));
+      console.log(colors.gray('You can start using Zig right away.'));
+      return;
+    }
+
+    // Check if env file exists but PATH is not configured
+    if (this.hasEnvFileConfigured()) {
+      console.log(colors.yellow('\n📋 Environment file exists but PATH needs to be configured:'));
+      console.log(colors.cyan('To activate Zig in your current session, run:'));
+      const ziggyDirVar = process.env.ZIGGY_DIR ? '$ZIGGY_DIR' : '$HOME/.ziggy';
+      console.log(colors.green(`source ${ziggyDirVar}/env`));
+      console.log(colors.gray('\nTo make this permanent, add the source command to your shell profile.'));
+      return;
+    }
+
     console.log(colors.yellow('\n📋 Setup Instructions:'));
 
     if (this.platform === 'windows') {
