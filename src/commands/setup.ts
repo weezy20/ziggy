@@ -1,26 +1,25 @@
 import { existsSync, appendFileSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
-import { ZigInstaller } from '../index';
+import { ZigInstaller, log } from '../index';
 import { colors } from '../utils/colors';
 import * as clack from '@clack/prompts';
-
 /**
  * Setup command - automatically configure shell environment
  */
 export async function setupCommand(): Promise<void> {
   const installer = new ZigInstaller();
   
-  console.log(colors.cyan('🔧 Ziggy Environment Setup'));
-  console.log();
+  log(colors.cyan('🔧 Ziggy Environment Setup'));
+  log();
 
   if (installer.platform === 'windows') {
     // Windows PowerShell setup
     const profilePath = process.env.USERPROFILE + '\\Documents\\PowerShell\\Microsoft.PowerShell_profile.ps1';
     const envLine = `. "${installer.envPath}"`;
     
-    console.log(colors.yellow('Setting up PowerShell environment...'));
-    console.log(colors.gray(`Profile: ${profilePath}`));
-    console.log(colors.gray(`Adding: ${envLine}`));
+    log(colors.yellow('Setting up PowerShell environment...'));
+    log(colors.gray(`Profile: ${profilePath}`));
+    log(colors.gray(`Adding: ${envLine}`));
     
     const confirm = await clack.confirm({
       message: 'Add Ziggy to your PowerShell profile?',
@@ -28,7 +27,7 @@ export async function setupCommand(): Promise<void> {
     });
     
     if (clack.isCancel(confirm) || !confirm) {
-      console.log(colors.yellow('Setup cancelled.'));
+      log(colors.yellow('Setup cancelled.'));
       return;
     }
     
@@ -43,7 +42,7 @@ export async function setupCommand(): Promise<void> {
       if (existsSync(profilePath)) {
         const content = require('fs').readFileSync(profilePath, 'utf8');
         if (content.includes(installer.envPath)) {
-          console.log(colors.green('✓ Ziggy is already configured in your PowerShell profile'));
+          log(colors.green('✓ Ziggy is already configured in your PowerShell profile'));
           return;
         }
       }
@@ -51,19 +50,19 @@ export async function setupCommand(): Promise<void> {
       // Add the line
       appendFileSync(profilePath, `\n${envLine}\n`);
       
-      console.log(colors.green('✅ Successfully added Ziggy to PowerShell profile!'));
-      console.log(colors.yellow('\n🔄 Please restart PowerShell or run:'));
-      console.log(colors.cyan(`. "${installer.envPath}"`));
+      log(colors.green('✅ Successfully added Ziggy to PowerShell profile!'));
+      log(colors.yellow('\n🔄 Please restart PowerShell or run:'));
+      log(colors.cyan(`. "${installer.envPath}"`));
       
     } catch (error) {
       console.error(colors.red('❌ Failed to setup profile:'), error);
-      console.log(colors.yellow('\n📝 Manual setup required:'));
-      console.log(colors.cyan(`Add-Content $PROFILE '${envLine}'`));
+      log(colors.yellow('\n📝 Manual setup required:'));
+      log(colors.cyan(`Add-Content $PROFILE '${envLine}'`));
     }
     
   } else {
     // Unix-like systems
-    console.log(colors.yellow('Setting up shell environment...'));
+    log(colors.yellow('Setting up shell environment...'));
     
     // Detect current shell
     const currentShell = process.env.SHELL?.split('/').pop() || 'bash';
@@ -91,7 +90,7 @@ export async function setupCommand(): Promise<void> {
     });
     
     if (clack.isCancel(setupChoice)) {
-      console.log(colors.yellow('Setup cancelled.'));
+      log(colors.yellow('Setup cancelled.'));
       return;
     }
     
@@ -109,7 +108,7 @@ export async function setupCommand(): Promise<void> {
       });
       
       if (clack.isCancel(selectedShell)) {
-        console.log(colors.yellow('Setup cancelled.'));
+        log(colors.yellow('Setup cancelled.'));
         return;
       }
       
@@ -122,8 +121,8 @@ export async function setupCommand(): Promise<void> {
       const profilePath = defaultConfig!.actualFile;
       const profileName = defaultConfig!.file;
       
-      console.log(colors.gray(`Profile: ${profileName}`));
-      console.log(colors.gray(`Adding this line -> ${envLine}`));
+      log(colors.gray(`Profile: ${profileName}`));
+      log(colors.gray(`Adding this line -> ${envLine}`));
       
       const confirm = await clack.confirm({
         message: `Add Ziggy to your ${defaultConfig!.name} profile?`,
@@ -131,7 +130,7 @@ export async function setupCommand(): Promise<void> {
       });
       
       if (clack.isCancel(confirm) || !confirm) {
-        console.log(colors.yellow('Setup cancelled.'));
+        log(colors.yellow('Setup cancelled.'));
         return;
       }
       
@@ -146,7 +145,7 @@ export async function setupCommand(): Promise<void> {
         if (existsSync(profilePath)) {
           const content = require('fs').readFileSync(profilePath, 'utf8');
           if (content.includes(installer.envPath)) {
-            console.log(colors.green(`✓ Ziggy is already configured in your ${defaultConfig!.name} profile`));
+            log(colors.green(`✓ Ziggy is already configured in your ${defaultConfig!.name} profile`));
             return;
           }
         }
@@ -154,26 +153,26 @@ export async function setupCommand(): Promise<void> {
         // Add the line
         appendFileSync(profilePath, `\n${envLine}\n`);
         
-        console.log(colors.green(`✅ Successfully added Ziggy to ${defaultConfig!.name} profile!`));
-        console.log(colors.yellow(`\n🔄 To start using Ziggy immediately, run:`));
-        console.log(colors.cyan(`source ${profileName}`));
-        console.log(colors.yellow('Or restart your terminal.'));
+        log(colors.green(`✅ Successfully added Ziggy to ${defaultConfig!.name} profile!`));
+        log(colors.yellow(`\n🔄 To start using Ziggy immediately, run:`));
+        log(colors.cyan(`source ${profileName}`));
+        log(colors.yellow('Or restart your terminal.'));
         
       } catch (error) {
         console.error(colors.red('❌ Failed to setup profile:'), error);
-        console.log(colors.yellow('\n📝 Manual setup required:'));
-        console.log(colors.cyan(`echo '${envLine}' >> ${profileName}`));
+        log(colors.yellow('\n📝 Manual setup required:'));
+        log(colors.cyan(`echo '${envLine}' >> ${profileName}`));
       }
       
     } else {
       // Manual setup instructions
-      console.log(colors.cyan('Add one of these lines to your shell profile:'));
+      log(colors.cyan('Add one of these lines to your shell profile:'));
       for (const shell of shellConfigs) {
         const envLine = `source "${installer.envPath}"`;
-        console.log(colors.green(`• ${shell.name} (${shell.file}): ${envLine}`));
+        log(colors.green(`• ${shell.name} (${shell.file}): ${envLine}`));
       }
-      console.log(colors.yellow('\nAfter adding the line, restart your terminal or run:'));
-      console.log(colors.cyan(`source <your-profile-file>`));
+      log(colors.yellow('\nAfter adding the line, restart your terminal or run:'));
+      log(colors.cyan(`source <your-profile-file>`));
     }
   }
 }

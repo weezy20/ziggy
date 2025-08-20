@@ -1,27 +1,26 @@
-import { ZigInstaller } from '../index';
+import { ZigInstaller, log } from '../index';
 import { colors } from '../utils/colors';
-
 /**
  * List command - show installed Zig versions
  */
 export function listCommand(): void {
   const installer = new ZigInstaller();
   
-  console.log(colors.yellow('\n📦 Installed Zig Versions:\n'));
+  log(colors.yellow('\n📦 Installed Zig Versions:\n'));
   
   const installedVersions = Object.keys(installer.config.downloads);
   
   if (installedVersions.length === 0 && !installer.config.systemZig) {
-    console.log(colors.gray('No Zig versions installed.'));
-    console.log(colors.yellow('Run `ziggy` to download and install Zig versions.'));
+    log(colors.gray('No Zig versions installed.'));
+    log(colors.yellow('Run `ziggy` to download and install Zig versions.'));
     return;
   }
 
   // Show system Zig if available
   if (installer.config.systemZig) {
     const isCurrent = installer.config.currentVersion === 'system' ? colors.green(' (current)') : '';
-    console.log(`${colors.cyan('system')} ${installer.config.systemZig.version}${isCurrent}`);
-    console.log(`  ${colors.gray('Path:')} ${installer.config.systemZig.path}`);
+    log(`${colors.cyan('system')} ${installer.config.systemZig.version}${isCurrent}`);
+    log(`  ${colors.gray('Path:')} ${installer.config.systemZig.path}`);
   }
 
   // Show downloaded versions
@@ -36,11 +35,11 @@ export function listCommand(): void {
                        info.status === 'downloading' ? colors.yellow :
                        colors.red;
     
-    console.log(`${colors.cyan(version)}${isCurrent}`);
-    console.log(`  ${colors.gray('Status:')} ${statusColor(info.status)}`);
-    console.log(`  ${colors.gray('Path:')} ${info.path}`);
-    console.log(`  ${colors.gray('Downloaded:')} ${new Date(info.downloadedAt).toLocaleDateString()}`);
+    log(`${colors.cyan(version)}${isCurrent}`);
+    log(`  ${colors.gray('Status:')} ${statusColor(info.status)}`);
+    log(`  ${colors.gray('Path:')} ${info.path}`);
+    log(`  ${colors.gray('Downloaded:')} ${new Date(info.downloadedAt).toLocaleDateString()}`);
   }
 
-  console.log('');
+  log('');
 }

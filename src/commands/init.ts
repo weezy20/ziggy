@@ -4,13 +4,14 @@ import * as clack from '@clack/prompts';
 import { cloneTemplateRepository } from '../utils/template';
 import { colors } from '../utils/colors';
 import { handleClackCancel } from '../utils/clack-helpers';
+const log = console.log;
 
 /**
  * Initialize a new Zig project using the template
  */
 export async function initCommand(projectName?: string): Promise<void> {
-  console.log(colors.cyan('🚀 Ziggy Init - Create a new Zig project'));
-  console.log();
+  log(colors.cyan('🚀 Ziggy Init - Create a new Zig project'));
+  log();
 
   let targetProjectName = projectName;
 
@@ -51,14 +52,14 @@ export async function initCommand(projectName?: string): Promise<void> {
     
     spinner.stop(colors.green('🎉 Project created successfully!'));
 
-    console.log();
-    console.log(colors.cyan('Next steps:'));
-    console.log(colors.gray(`  cd ${targetProjectName}`));
-    console.log(colors.gray('  zig build run'));
-    console.log();
-    console.log();
-    console.log(colors.yellow('Happy coding!'));
-    console.log();
+    log();
+    log(colors.cyan('Next steps:'));
+    log(colors.gray(`  cd ${targetProjectName}`));
+    log(colors.gray('  zig build run'));
+    log();
+    log();
+    log(colors.yellow('Happy coding!'));
+    log();
     process.exit(0);
 
   } catch (error) {

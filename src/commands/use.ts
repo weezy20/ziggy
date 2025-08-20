@@ -1,5 +1,5 @@
 import * as clack from '@clack/prompts';
-import { ZigInstaller } from '../index';
+import { ZigInstaller, log } from '../index';
 import { colors } from '../utils/colors';
 
 /**
@@ -75,7 +75,7 @@ export async function useCommand(includeNavigation = false, specificVersion?: st
     }
     
     if (selectedVersion === 'quit') {
-      console.log(colors.green('👋 Goodbye!'));
+      log(colors.green('👋 Goodbye!'));
       process.exit(0);
     }
   }
@@ -148,13 +148,13 @@ async function handleSpecificVersion(installer: ZigInstaller, version: string, i
   
   try {
     // Download the version
-    console.log(colors.green(`\n🚀 Installing Zig ${version}...`));
+    log(colors.green(`\n🚀 Installing Zig ${version}...`));
     await installer.downloadWithVersion(version);
     
     // Switch to the newly downloaded version
     installer.useVersion(version);
     
-    console.log(colors.green(`✅ Successfully switched to Zig ${version}!`));
+    log(colors.green(`✅ Successfully switched to Zig ${version}!`));
     
     if (includeNavigation) {
       await showPostActionMenu(installer);
@@ -194,7 +194,7 @@ async function showPostActionMenu(installer: ZigInstaller, customOptions: { valu
   });
 
   if (clack.isCancel(action) || action === 'quit') {
-    console.log(colors.green('👋 Goodbye!'));
+    log(colors.green('👋 Goodbye!'));
     process.exit(0);
   }
 
