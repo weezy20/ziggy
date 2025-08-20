@@ -1326,7 +1326,19 @@ export PATH="${this.binDir}:$PATH"
         console.log();
         console.log(colors.yellow('Happy coding! 🦎'));
         console.log();
-        process.exit(0);
+        
+        // Use post-action menu for Ziggy template
+        const ziggyAction = await this.showPostActionOptions([
+          { value: 'create-another', label: 'Create another project' }
+        ]);
+
+        if (ziggyAction === 'create-another') {
+          // Recursively call to create another project
+          await this.handleCreateProjectTUI();
+          return;
+        }
+
+        // For 'main-menu', just return normally
 
       } else if (templateChoice === 'zig-init') {
         // Use zig init
@@ -1369,7 +1381,19 @@ export PATH="${this.binDir}:$PATH"
         console.log();
         console.log(colors.yellow('Happy coding! 🦎'));
         console.log();
-        process.exit(0);
+        
+        // Use post-action menu for zig-init
+        const zigInitAction = await this.showPostActionOptions([
+          { value: 'create-another', label: 'Create another project' }
+        ]);
+
+        if (zigInitAction === 'create-another') {
+          // Recursively call to create another project
+          await this.handleCreateProjectTUI();
+          return;
+        }
+
+        // For 'main-menu', just return normally
       }
 
     } catch (error) {
@@ -1484,28 +1508,12 @@ export PATH="${this.binDir}:$PATH"
 
     if (choices.length === 0) {
       clack.log.warn('No Zig versions installed');
-      return;
+    } else {
+      clack.note(choices.join('\n'), 'Available Zig versions');
     }
 
-    clack.note(choices.join('\n'), 'Available Zig versions');
-
-    const action = await clack.select({
-      message: 'What would you like to do?',
-      options: [
-        { value: 'back', label: '← Back to main menu' },
-        { value: 'quit', label: 'Quit' }
-      ],
-      initialValue: 'back'
-    });
-
-    if (clack.isCancel(action) || action === 'back') {
-      return; // Go back to main menu
-    }
-
-    if (action === 'quit') {
-      console.log(colors.green('👋 Goodbye!'));
-      process.exit(0);
-    }
+    // Use the new post-action menu
+    await this.showPostActionOptions();
   }
 
   public async handleCleanTUI(): Promise<void> {
@@ -1628,6 +1636,9 @@ export PATH="${this.binDir}:$PATH"
     } else {
       clack.log.warn('No Zig version is currently active');
     }
+
+    // Add post-action menu
+    await this.showPostActionOptions();
   }
 
   public async cleanExceptCurrent(): Promise<void> {
@@ -1674,6 +1685,9 @@ export PATH="${this.binDir}:$PATH"
     this.saveConfig();
     spinner.stop(`Cleaned up ${cleaned} old installations`);
     clack.log.success(`Kept ${currentVersion} as active version`);
+
+    // Add post-action menu
+    await this.showPostActionOptions();
   }
 
   public async selectVersionToKeep(): Promise<void> {
@@ -1736,6 +1750,9 @@ export PATH="${this.binDir}:$PATH"
 
     spinner.stop(`Cleaned up ${cleaned} installations`);
     clack.log.success(`Kept ${versionToKeep} and set it as active version`);
+
+    // Add post-action menu
+    await this.showPostActionOptions();
   }
 
   private async downloadWithVersion(version: string): Promise<void> {
@@ -1831,7 +1848,7 @@ export PATH="${this.binDir}:$PATH"
         const totalVersions = availableVersions.length + (this.config.systemZig ? 1 : 0);
 
         if (totalVersions > 1) {
-          console.log(colors.yellow(`\nTo switch to this version, run: ${colors.cyan('ziggy use')}`));
+          console.log(colors.yellow(`\nTo switch to this version, run: ${colors.cyan('ziggy use')} or select Switch active Zig version from the main menu `));
         } else {
           console.log(colors.green(`✓ Zig ${version} is now your active version`));
           // Auto-activate if it's the only ziggy-managed version
@@ -1890,6 +1907,31 @@ export PATH="${this.binDir}:$PATH"
     }
 
     // If they chose main-menu, we just return and let the main loop continue
+  }
+
+  /**
+   * Generic post-action menu for consistent user experience
+   * @param customOptions - Additional custom options specific to the action
+   */
+  private async showPostActionOptions(customOptions: { value: string; label: string; hint?: string }[] = []): Promise<string> {
+    const options = [
+      ...customOptions,
+      { value: 'main-menu', label: '← Return to main menu' },
+      { value: 'quit', label: 'Quit' }
+    ];
+
+    const action = await clack.select({
+      message: 'What would you like to do next?',
+      options,
+      initialValue: customOptions.length > 0 ? customOptions[0]!.value : 'main-menu'
+    });
+
+    if (clack.isCancel(action) || action === 'quit') {
+      console.log(colors.green('👋 Goodbye!'));
+      process.exit(0);
+    }
+
+    return action; // Return the selected action instead of boolean
   }
 
   private async setupPowerShellProfile(): Promise<void> {

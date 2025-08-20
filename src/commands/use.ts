@@ -68,5 +68,40 @@ export async function useCommand(includeNavigation = false): Promise<boolean> {
   }
   
   installer.useVersion(selectedVersion);
+  
+  // Show post-action menu when in TUI mode
+  if (includeNavigation) {
+    const postActionOptions = [
+      { value: 'switch-again', label: 'Switch to another version' },
+      { value: 'list-versions', label: 'List all versions' }
+    ];
+
+    const action = await clack.select({
+      message: 'What would you like to do next?',
+      options: [
+        ...postActionOptions,
+        { value: 'main-menu', label: '← Return to main menu' },
+        { value: 'quit', label: 'Quit' }
+      ],
+      initialValue: 'main-menu'
+    });
+
+    if (clack.isCancel(action) || action === 'quit') {
+      console.log(colors.green('👋 Goodbye!'));
+      process.exit(0);
+    }
+
+    if (action === 'switch-again') {
+      // Recursively call useCommand to switch again
+      return await useCommand(true);
+    }
+
+    if (action === 'list-versions') {
+      // List versions and then return to main menu
+      await installer.listVersionsTUI();
+      return true;
+    }
+  }
+  
   return true;
 }
