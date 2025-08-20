@@ -4,6 +4,7 @@ import { initCommand } from './commands/init';
 import { useCommand } from './commands/use';
 import { listCommand } from './commands/list';
 import { cleanCommand } from './commands/clean';
+import { setupCommand } from './commands/setup';
 import { colors } from './utils/colors';
 
 export function setupCLI(): Command {
@@ -61,6 +62,19 @@ export function setupCLI(): Command {
     .action(async () => {
       try {
         await cleanCommand();
+      } catch (error) {
+        console.error(colors.red('Error:'), error);
+        process.exit(1);
+      }
+    });
+
+  // Setup command - configure shell environment
+  program
+    .command('setup')
+    .description('Setup shell environment for Ziggy')
+    .action(async () => {
+      try {
+        await setupCommand();
       } catch (error) {
         console.error(colors.red('Error:'), error);
         process.exit(1);

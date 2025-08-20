@@ -2,7 +2,7 @@
 
 import { ZIG_ASCII_ART } from './ascii-art';
 import { join, resolve, dirname } from 'path';
-import { existsSync, mkdirSync, createWriteStream, createReadStream, statSync, readdirSync, rmSync, appendFileSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, createWriteStream, createReadStream, statSync, readdirSync, rmSync, appendFileSync, readFileSync, writeFileSync, copyFileSync } from 'fs';
 import * as tar from 'tar';
 import { xz } from '@napi-rs/lzma';
 import { extract as extractZip } from 'zip-lib';
@@ -20,7 +20,7 @@ let currentDownload: { cleanup?: () => void } | null = null;
 function setupSignalHandlers() {
   const gracefulExit = () => {
     console.log(colors.yellow('\n\n🛑 Interrupt: Shutting down ...'));
-    
+
     // Clean up any ongoing downloads
     if (currentDownload?.cleanup) {
       try {
@@ -30,7 +30,7 @@ function setupSignalHandlers() {
         console.log(colors.red('⚠ Download cleanup failed'));
       }
     }
-    
+
     console.log(colors.yellow('👋 Goodbye!'));
     process.exit(0);
   };
@@ -48,7 +48,7 @@ function createProgressBar(current: number, total: number, width: number = 40): 
   const percentage = Math.round((current / total) * 100);
   const filled = Math.round((current / total) * width);
   const empty = width - filled;
-  
+
   const bar = '█'.repeat(filled) + '░'.repeat(empty);
   return `[${bar}] ${percentage}% (${formatBytes(current)}/${formatBytes(total)})`;
 }
@@ -82,16 +82,16 @@ export class ZigInstaller {
     this.cwd = process.cwd();
     this.ziggyDir = this.getZiggyDir();
     this.binDir = join(this.ziggyDir, 'bin');
-    
+
     // Platform-specific env file names
     if (this.platform === 'windows') {
       this.envPath = join(this.ziggyDir, 'env.ps1'); // PowerShell script
     } else {
       this.envPath = join(this.ziggyDir, 'env'); // Bash/Zsh script
     }
-    
+
     this.configPath = join(this.ziggyDir, 'ziggy.toml');
-    
+
     // Ensure directories exist
     if (!existsSync(this.ziggyDir)) {
       mkdirSync(this.ziggyDir, { recursive: true });
@@ -99,7 +99,7 @@ export class ZigInstaller {
     if (!existsSync(this.binDir)) {
       mkdirSync(this.binDir, { recursive: true });
     }
-    
+
     this.config = this.loadConfig();
     this.detectSystemZig();
     this.cleanupIncompleteDownloads();
@@ -135,13 +135,13 @@ export class ZigInstaller {
 
     if (hasIncompleteDownloads) {
       console.log(colors.yellow('🧹 Cleaning up incomplete downloads from previous session...'));
-      
+
       for (const version of versionsToCleanup) {
         const info = this.config.downloads[version];
         if (info) {
           // Remove the incomplete download entry
           delete this.config.downloads[version];
-          
+
           // Remove any partial files
           if (existsSync(info.path)) {
             try {
@@ -152,48 +152,55 @@ export class ZigInstaller {
           }
         }
       }
-      
+
       this.saveConfig();
       console.log(colors.green(`✓ Cleaned up ${versionsToCleanup.length} incomplete download(s)`));
     }
   }
 
   private createSymlink(targetPath: string, version: string) {
-    const zigBinary = join(this.binDir, 'zig');
-    
+    const zigBinaryName = this.platform === 'windows' ? 'zig.exe' : 'zig';
+    const zigBinary = join(this.binDir, zigBinaryName);
+
     // Remove existing symlink if it exists
     if (existsSync(zigBinary)) {
       rmSync(zigBinary);
     }
-    
+
     // Create new symlink
     try {
       let symlinkTarget;
-      
+
       if (version === 'system') {
         // For system zig, use the direct path to the binary
         symlinkTarget = targetPath;
       } else {
         // For ziggy-managed versions, find the actual zig binary
         // First check if zig binary is directly in the path
-        const directZigPath = join(targetPath, 'zig');
+        const zigBinaryName = this.platform === 'windows' ? 'zig.exe' : 'zig';
+        const directZigPath = join(targetPath, zigBinaryName);
         if (existsSync(directZigPath)) {
           symlinkTarget = directZigPath;
         } else {
           // Fallback: look for extracted directory structure
-          const extractedDirName = `zig-${this.platform}-${this.arch}-${version}`;
-          symlinkTarget = join(targetPath, extractedDirName, 'zig');
+          const extractedDirName = `zig-${this.arch}-${this.platform}-${version}`;
+          symlinkTarget = join(targetPath, extractedDirName, zigBinaryName);
         }
       }
-      
+
       console.log(colors.gray(`Creating symlink: ${zigBinary} -> ${symlinkTarget}`));
-      
+
       // Verify target exists
       if (!existsSync(symlinkTarget)) {
         throw new Error(`Target zig binary not found at: ${symlinkTarget}`);
       }
-      
-      Bun.spawnSync(['ln', '-sf', symlinkTarget, zigBinary]);
+
+      if (this.platform === 'windows') {
+        // On Windows, copy the executable to the bin directory
+        copyFileSync(symlinkTarget, zigBinary);
+      } else {
+        Bun.spawnSync(['ln', '-sf', symlinkTarget, zigBinary]);
+      }
       this.config.currentVersion = version;
       this.saveConfig();
       console.log(colors.green(`✓ Symlinked ${version} to ${zigBinary}`));
@@ -225,7 +232,7 @@ export PATH="${this.binDir}:$PATH"
 `;
       instructions = `Add this to your shell profile:\nsource "${this.envPath}"`;
     }
-    
+
     writeFileSync(this.envPath, envContent);
     console.log(colors.green(`✓ Created env file at ${this.envPath}`));
     console.log(colors.yellow(`\nTo use ziggy-managed Zig versions:`));
@@ -252,7 +259,7 @@ export PATH="${this.binDir}:$PATH"
     if (!homeDir) {
       throw new Error('Unable to determine home directory');
     }
-    
+
     return join(homeDir, '.ziggy');
   }
 
@@ -287,13 +294,13 @@ export PATH="${this.binDir}:$PATH"
   private scanExistingInstallations(): ZiggyConfig {
     const config: ZiggyConfig = { downloads: {} };
     const versionsDir = join(this.ziggyDir, 'versions');
-    
+
     if (!existsSync(versionsDir)) {
       return config;
     }
 
     console.log(colors.yellow('📁 No ziggy.toml found. Scanning existing installations...'));
-    
+
     const versionDirs = readdirSync(versionsDir).filter(dir => {
       const fullPath = join(versionsDir, dir);
       return statSync(fullPath).isDirectory();
@@ -311,25 +318,25 @@ export PATH="${this.binDir}:$PATH"
 
     for (const versionDir of versionDirs) {
       const versionPath = join(versionsDir, versionDir);
-      
+
       // Update progress bar
       processed++;
       const progress = processed / versionDirs.length;
       const filled = Math.floor(progress * progressWidth);
       const bar = '█'.repeat(filled) + '░'.repeat(progressWidth - filled);
       const percentage = Math.floor(progress * 100);
-      
+
       process.stdout.write(`\r${colors.cyan('Scanning:')} [${bar}] ${percentage}% (${versionDir})`);
 
       // Look for zig binary directly in the version directory
       const zigBinary = join(versionPath, 'zig');
-      
+
       if (existsSync(zigBinary)) {
         // Try to get version from zig binary
         let version = versionDir;
-        
+
         try {
-          const versionResult = Bun.spawnSync([zigBinary, 'version'], { 
+          const versionResult = Bun.spawnSync([zigBinary, 'version'], {
             stdout: 'pipe',
             timeout: 5000 // 5 second timeout
           });
@@ -350,7 +357,7 @@ export PATH="${this.binDir}:$PATH"
       } else {
         // Look for extracted Zig installations (old format)
         const contents = readdirSync(versionPath);
-        const zigExtraction = contents.find(item => 
+        const zigExtraction = contents.find(item =>
           item.startsWith('zig-') && statSync(join(versionPath, item)).isDirectory()
         );
 
@@ -360,9 +367,9 @@ export PATH="${this.binDir}:$PATH"
           if (existsSync(zigBinaryInSubdir)) {
             // Try to get version from directory name or binary
             let version = versionDir;
-            
+
             try {
-              const versionResult = Bun.spawnSync([zigBinaryInSubdir, 'version'], { 
+              const versionResult = Bun.spawnSync([zigBinaryInSubdir, 'version'], {
                 stdout: 'pipe',
                 timeout: 5000
               });
@@ -386,7 +393,7 @@ export PATH="${this.binDir}:$PATH"
 
     // Clear progress bar line
     process.stdout.write('\r' + ' '.repeat(60) + '\r');
-    
+
     const foundCount = Object.keys(config.downloads).length;
     if (foundCount > 0) {
       console.log(colors.green(`✓ Found ${foundCount} valid Zig installation(s):`));
@@ -429,7 +436,7 @@ export PATH="${this.binDir}:$PATH"
           version = version.slice(1, -1);
         }
         if (!version) continue;
-        
+
         if (!config.downloads![version]) {
           config.downloads![version] = {
             version: version,
@@ -441,10 +448,10 @@ export PATH="${this.binDir}:$PATH"
 
         const parts = trimmed.split('=');
         if (parts.length < 2) continue;
-        
+
         const key = parts[0]?.trim();
         const value = parts.slice(1).join('=').trim().replace(/"/g, '');
-        
+
         if (!key) continue;
 
         if (key === 'path') config.downloads![version]!.path = value;
@@ -466,11 +473,11 @@ export PATH="${this.binDir}:$PATH"
 
   private generateToml(config: ZiggyConfig): string {
     let content = '# Ziggy Configuration\n\n';
-    
+
     if (config.currentVersion) {
       content += `currentVersion = "${config.currentVersion}"\n\n`;
     }
-    
+
     for (const [version, info] of Object.entries(config.downloads)) {
       // Quote version if it contains dots or special characters
       const quotedVersion = version.includes('.') || version.includes('-') ? `"${version}"` : version;
@@ -551,19 +558,19 @@ export PATH="${this.binDir}:$PATH"
       if (!response.ok) {
         throw new Error(`Failed to fetch download info: ${response.status}`);
       }
-      
+
       const downloadData = await response.json() as ZigDownloadIndex;
       const archKey = `${this.arch}-${this.platform}`;
-      
+
       if (!downloadData[version]) {
         throw new Error(`Version ${version} not found`);
       }
-      
+
       const versionData = downloadData[version];
       if (!versionData[archKey]) {
         throw new Error(`No download available for ${archKey} architecture`);
       }
-      
+
       const downloadInfo = versionData[archKey];
       const zigUrl = downloadInfo.tarball;
       const ext = this.getExt();
@@ -578,7 +585,7 @@ export PATH="${this.binDir}:$PATH"
       }
 
       const contentLength = parseInt(downloadResponse.headers.get('content-length') || '0');
-      
+
       // Create directory if it doesn't exist
       if (!existsSync(installPath)) {
         mkdirSync(installPath, { recursive: true });
@@ -587,7 +594,7 @@ export PATH="${this.binDir}:$PATH"
       // Download the file
       const writer = createWriteStream(tarPath);
       const reader = downloadResponse.body?.getReader();
-      
+
       if (!reader) {
         throw new Error('Failed to get response stream');
       }
@@ -599,10 +606,10 @@ export PATH="${this.binDir}:$PATH"
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          
+
           writer.write(value);
           downloadedBytes += value.length;
-          
+
           if (contentLength > 0) {
             const progressBar = createProgressBar(downloadedBytes, contentLength);
             if (progressBar !== lastProgress) {
@@ -632,26 +639,26 @@ export PATH="${this.binDir}:$PATH"
 
       // Extract the archive
       console.log(colors.blue('Starting extraction process...'));
-      
+
       const spinnerChars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
       let spinnerIndex = 0;
-      
+
       const spinnerInterval = setInterval(() => {
         process.stdout.write(`\r${colors.cyan(spinnerChars[spinnerIndex]!)} Extracting files...`);
         spinnerIndex = (spinnerIndex + 1) % spinnerChars.length;
       }, 100);
-      
+
       try {
         console.log(colors.yellow(`\nExtracting ${tarPath} to ${installPath}...`));
-        
+
         if (ext === 'tar.xz') {
           this.extractTarXz(tarPath, installPath);
         } else if (ext === 'zip') {
-          this.extractZip(tarPath, installPath);
+          await this.extractZip(tarPath, installPath);
         } else {
           throw new Error(`Unsupported file format: ${ext}`);
         }
-        
+
         clearInterval(spinnerInterval);
         process.stdout.write('\r' + ' '.repeat(30) + '\r');
         console.log(colors.green('✓ Extraction completed!'));
@@ -661,14 +668,14 @@ export PATH="${this.binDir}:$PATH"
         console.error(colors.red('Extraction failed:'), extractError);
         throw extractError;
       }
-      
+
       // Clean up the downloaded archive
       console.log(colors.blue('Cleaning up downloaded archive...'));
       if (existsSync(tarPath)) {
         rmSync(tarPath);
       }
       console.log(colors.green('✓ Installation completed!'));
-      
+
     } catch (error) {
       throw new Error(`Failed to download Zig: ${error}`);
     }
@@ -679,11 +686,11 @@ export PATH="${this.binDir}:$PATH"
       try {
         const inputStream = createReadStream(filePath);
         const chunks: Uint8Array[] = [];
-        
+
         inputStream.on('data', (chunk: string | Buffer) => {
           chunks.push(Buffer.isBuffer(chunk) ? new Uint8Array(chunk) : new Uint8Array(Buffer.from(chunk)));
         });
-        
+
         inputStream.on('end', async () => {
           try {
             // Combine all chunks into a single Uint8Array
@@ -694,38 +701,38 @@ export PATH="${this.binDir}:$PATH"
               compressedData.set(chunk, offset);
               offset += chunk.length;
             }
-            
+
             const decompressedData = await xz.decompress(compressedData);
-            
+
             // Create a temporary tar file
             const tempTarPath = filePath.replace('.tar.xz', '.tar');
             const tempWriter = createWriteStream(tempTarPath);
             tempWriter.write(decompressedData);
             tempWriter.end();
-            
+
             await new Promise<void>((resolveWrite, rejectWrite) => {
               tempWriter.on('finish', resolveWrite);
               tempWriter.on('error', rejectWrite);
             });
-            
+
             // Extract the tar file
             await tar.extract({
               file: tempTarPath,
               cwd: outputPath,
               strip: 1 // Remove the top-level directory
             });
-            
+
             // Clean up temp file
             if (existsSync(tempTarPath)) {
               rmSync(tempTarPath);
             }
-            
+
             resolve();
           } catch (error) {
             reject(error);
           }
         });
-        
+
         inputStream.on('error', reject);
       } catch (error) {
         reject(error);
@@ -733,18 +740,21 @@ export PATH="${this.binDir}:$PATH"
     });
   }
 
-  private extractZip(filePath: string, outputPath: string): void {
-    return new Promise((resolve, reject) => {
-      extractZip(filePath, outputPath)
-        .then(() => resolve())
-        .catch(reject);
-    });
+  private async extractZip(filePath: string, outputPath: string): Promise<void> {
+    console.log(colors.gray(`Extracting ZIP: ${filePath} to ${outputPath}`));
+    try {
+      await extractZip(filePath, outputPath);
+      console.log(colors.gray('ZIP extraction completed'));
+    } catch (error) {
+      console.error(colors.red('ZIP extraction failed:'), error);
+      throw error;
+    }
   }
 
   private detectShell(): ShellInfo {
     const shell = process.env.SHELL || '';
     const platform = process.platform;
-    
+
     if (platform === 'win32') {
       // Windows detection
       if (process.env.PSModulePath) {
@@ -761,7 +771,7 @@ export PATH="${this.binDir}:$PATH"
         };
       }
     }
-    
+
     // Unix-like systems
     if (shell.includes('zsh')) {
       return {
@@ -824,11 +834,11 @@ export PATH="${this.binDir}:$PATH"
     const version = await this.getLatestStableVersion();
     const _zigBinPath = dirname(join(installPath, `zig-${this.platform}-${this.arch}-${version}`, 'zig'));
     const shellInfo = this.detectShell();
-    
+
     console.log(colors.yellow(`\nDetected shell: ${colors.cyan(shellInfo.shell)}`));
     console.log(colors.yellow('\nZiggy will create an environment file at:'));
     console.log(colors.cyan(this.envPath));
-    
+
     console.log(colors.yellow('\nWhat would you like to do?'));
     const choice = await clack.select({
       message: 'Choose setup option:',
@@ -838,11 +848,11 @@ export PATH="${this.binDir}:$PATH"
       ],
       initialValue: 'create'
     });
-    
+
     if (clack.isCancel(choice) || choice === 'back') {
       return changes;
     }
-    
+
     if (choice === 'create') {
       try {
         // Ask for explicit permission to create .ziggy directory and env file
@@ -850,30 +860,30 @@ export PATH="${this.binDir}:$PATH"
           message: `Create ${this.getZiggyDir()} directory and env file?`,
           initialValue: true
         });
-        
+
         if (clack.isCancel(createZiggy) || !createZiggy) {
           console.log(colors.yellow('✓ Ziggy environment not created. You can set up PATH manually.'));
           changes.push('User declined to create .ziggy environment');
           return changes;
         }
-        
+
         // Create the env file using the unified method
         this.createEnvFile();
         changes.push(`Created env file with Zig ${version} PATH`);
-        
+
         // Show manual setup instructions
         console.log(colors.yellow('\n' + '='.repeat(60)));
         console.log(colors.yellow('📝 MANUAL SETUP REQUIRED'));
         console.log(colors.yellow('='.repeat(60)));
-        
+
         console.log(colors.yellow('\nTo complete the Zig installation, add this line to your shell profile:'));
         const sourceLine = this.getShellSourceLine(shellInfo);
         console.log(colors.green(sourceLine));
-        
+
         // Platform-specific instructions
         if (this.platform === 'win32') {
           console.log(colors.yellow('\n📁 Windows shell profile locations:'));
-          console.log(colors.cyan('• PowerShell: $PROFILE (usually Documents\\WindowsPowerShell\\Microsoft.PowerShell_profile.ps1)'));
+          console.log(colors.cyan(`• PowerShell: $PROFILE (typically: ${process.env.USERPROFILE}\\Documents\\PowerShell\\Microsoft.PowerShell_profile.ps1)`));
           console.log(colors.cyan('• Command Prompt: Add to system environment variables'));
         } else if (this.platform === 'darwin') {
           console.log(colors.yellow('\n📁 macOS shell profile locations:'));
@@ -886,21 +896,21 @@ export PATH="${this.binDir}:$PATH"
           console.log(colors.cyan('• Zsh: ~/.zshrc'));
           console.log(colors.cyan('• Fish: ~/.config/fish/config.fish'));
         }
-        
+
         console.log(colors.yellow(`\n🔧 For your current shell (${shellInfo.shell}), add it to:`));
         console.log(colors.cyan(shellInfo.profileFile));
-        
+
         console.log(colors.yellow('\n♻️  After adding the line, restart your terminal or run:'));
         console.log(colors.cyan(`source ${shellInfo.profileFile}`));
-        
+
         console.log(colors.yellow('\n✨ That\'s it! Ziggy will manage the rest automatically.'));
         console.log(colors.yellow('='.repeat(60)));
-        
+
         changes.push('Provided manual setup instructions');
-        
+
         // Offer user choice to quit or return to main menu
         await this.showPostInstallOptions();
-        
+
       } catch (error) {
         console.log(colors.red('Failed to set up Ziggy environment. Please set up PATH manually.'));
         console.log(colors.red('Error:'), error);
@@ -909,7 +919,7 @@ export PATH="${this.binDir}:$PATH"
     } else {
       changes.push('User chose to skip Ziggy environment setup');
     }
-    
+
     return changes;
   }
 
@@ -931,7 +941,7 @@ export PATH="${this.binDir}:$PATH"
     // First expand ~ to home directory if present
     const expandedPath = this.expandHomePath(userPath);
     const resolvedPath = resolve(this.cwd, expandedPath);
-    
+
     if (!existsSync(resolvedPath)) {
       // Ask before creating directory
       const createDir = await clack.confirm({
@@ -974,7 +984,7 @@ export PATH="${this.binDir}:$PATH"
   private displayHeaderWithInfo(): void {
     // Split ASCII art into lines
     const asciiLines = ZIG_ASCII_ART.trim().split('\n');
-    
+
     // Prepare system info lines
     const shellInfo = this.detectShell();
     const systemInfo = [
@@ -992,33 +1002,33 @@ export PATH="${this.binDir}:$PATH"
 
     // Display ASCII art with system info side by side
     const maxLines = Math.max(asciiLines.length, systemInfo.length);
-    
+
     for (let i = 0; i < maxLines; i++) {
       const asciiLine = asciiLines[i] || '';
       const infoLine = systemInfo[i] || '';
-      
+
       // Pad ASCII line to consistent width
       const paddedAscii = asciiLine.padEnd(maxAsciiWidth);
-      
+
       if (infoLine) {
         console.log(colors.yellow(paddedAscii) + ' '.repeat(padding) + colors.yellow(infoLine));
       } else {
         console.log(colors.yellow(paddedAscii));
       }
     }
-    
+
     console.log(''); // Add spacing after header
   }
 
   private async runTUI(): Promise<void> {
     // Show colorful ASCII art and system info side by side
     this.displayHeaderWithInfo();
-    
+
     // Show system Zig if detected
     if (this.config.systemZig) {
       console.log(colors.yellow(`System Zig: ${colors.cyan(this.config.systemZig.version)} at ${colors.gray(this.config.systemZig.path)}`));
     }
-    
+
     // Show current active version
     if (this.config.currentVersion) {
       if (this.config.currentVersion === 'system' && this.config.systemZig) {
@@ -1036,22 +1046,22 @@ export PATH="${this.binDir}:$PATH"
     // Check if ziggy directory exists and setup if needed
     if (!existsSync(this.ziggyDir)) {
       console.log(colors.yellow(`\n🔧 First time setup: Ziggy directory doesn't exist.`));
-      
+
       const createDir = await clack.confirm({
         message: `Create Ziggy directory at ${this.ziggyDir}?`,
         initialValue: true
       });
-      
+
       if (clack.isCancel(createDir) || !createDir) {
         clack.cancel('Setup cancelled. Ziggy needs a directory to manage Zig versions.');
         process.exit(1);
       }
-      
+
       mkdirSync(this.ziggyDir, { recursive: true });
       mkdirSync(join(this.ziggyDir, 'versions'), { recursive: true });
       mkdirSync(join(this.ziggyDir, 'bin'), { recursive: true });
       console.log(colors.green(`✓ Created Ziggy directory at ${this.ziggyDir}`));
-      
+
       // Save initial empty config
       this.saveConfig();
       console.log(colors.green(`✓ Initialized ziggy.toml configuration`));
@@ -1064,7 +1074,7 @@ export PATH="${this.binDir}:$PATH"
       for (const version of installedVersions) {
         const info = this.config.downloads[version];
         if (!info) continue;
-        
+
         // Only show completed versions, with status indicators for others
         if (info.status === 'completed') {
           const isCurrent = this.config.currentVersion === version ? colors.green(' ← current') : '';
@@ -1143,13 +1153,13 @@ export PATH="${this.binDir}:$PATH"
           process.exit(0);
         }
         console.log(colors.red(`Error: ${error instanceof Error ? error.message : String(error)}`));
-        
+
         // Ask if user wants to continue
         const continueChoice = await clack.confirm({
           message: 'Would you like to return to the main menu?',
           initialValue: true
         });
-        
+
         if (clack.isCancel(continueChoice) || !continueChoice) {
           console.log(colors.green('👋 Goodbye!'));
           process.exit(0);
@@ -1188,7 +1198,7 @@ export PATH="${this.binDir}:$PATH"
 
     // Check for active Zig installations
     const hasActiveZig = this.config.currentVersion || this.config.systemZig;
-    
+
     const templateChoices = [
       { value: 'back', label: '← Back to main menu' },
       { value: 'ziggy', label: 'Lean zig-app-template', hint: 'Bare bones zig-app-template with {main, build}.zig, a .gitignore and empty README' }
@@ -1196,20 +1206,20 @@ export PATH="${this.binDir}:$PATH"
 
     // Add zig init option if Zig is available
     if (hasActiveZig) {
-      const zigVersion = this.config.currentVersion === 'system' && this.config.systemZig 
-        ? this.config.systemZig.version 
+      const zigVersion = this.config.currentVersion === 'system' && this.config.systemZig
+        ? this.config.systemZig.version
         : this.config.currentVersion;
-      
-      templateChoices.push({ 
-        value: 'zig-init', 
-        label: `Standard Zig template (Same as \`zig init\`)`, 
-        hint: `Using Zig ${zigVersion}` 
+
+      templateChoices.push({
+        value: 'zig-init',
+        label: `Standard Zig template (Same as \`zig init\`)`,
+        hint: `Using Zig ${zigVersion}`
       });
     }
 
     const templateChoice = await clack.select({
-      message: hasActiveZig 
-        ? 'Choose project template:' 
+      message: hasActiveZig
+        ? 'Choose project template:'
         : 'Choose project template: (zig init requires an active Zig installation)',
       options: templateChoices,
       initialValue: 'ziggy'
@@ -1224,13 +1234,13 @@ export PATH="${this.binDir}:$PATH"
         // Use ziggy template
         const spinner = clack.spinner();
         spinner.start('Creating project...');
-        
+
         await cloneTemplateRepository(targetPath, (message: string) => {
           spinner.message(message);
         });
-        
+
         spinner.stop('✓ Project created successfully!');
-        
+
         console.log();
         console.log(colors.green('🎉 Project created successfully with Ziggy template!'));
         console.log();
@@ -1241,15 +1251,15 @@ export PATH="${this.binDir}:$PATH"
         console.log(colors.yellow('Happy coding! 🦎'));
         console.log();
         process.exit(0);
-        
+
       } else if (templateChoice === 'zig-init') {
         // Use zig init
         const spinner = clack.spinner();
         spinner.start('Creating project with zig init...');
-        
+
         // Create the directory first
         mkdirSync(targetPath, { recursive: true });
-        
+
         // Get the active zig command
         let zigCommand = 'zig';
         if (this.config.currentVersion === 'system' && this.config.systemZig) {
@@ -1258,22 +1268,22 @@ export PATH="${this.binDir}:$PATH"
           // Use the symlinked zig from ziggy
           zigCommand = join(this.binDir, 'zig');
         }
-        
+
         // Run zig init in the target directory
-        const result = Bun.spawnSync([zigCommand, 'init'], { 
+        const result = Bun.spawnSync([zigCommand, 'init'], {
           cwd: targetPath,
           stdout: 'pipe',
           stderr: 'pipe'
         });
-        
+
         if (result.exitCode !== 0) {
           spinner.stop('Failed');
           const errorOutput = result.stderr?.toString() || 'Unknown error';
           throw new Error(`zig init failed: ${errorOutput}`);
         }
-        
+
         spinner.stop('✓ Project created successfully!');
-        
+
         console.log();
         console.log(colors.green('🎉 Project created successfully with zig init!'));
         console.log();
@@ -1285,10 +1295,10 @@ export PATH="${this.binDir}:$PATH"
         console.log();
         process.exit(0);
       }
-      
+
     } catch (error) {
       clack.log.error(`Failed to create project: ${error instanceof Error ? error.message : String(error)}`);
-      
+
       // Clean up if directory was created
       if (existsSync(targetPath)) {
         try {
@@ -1308,7 +1318,7 @@ export PATH="${this.binDir}:$PATH"
   private async handleDownloadSpecificTUI(): Promise<void> {
     const spinner = clack.spinner();
     spinner.start('Fetching available versions...');
-    
+
     let availableVersions: string[];
     try {
       availableVersions = await this.getAvailableVersions();
@@ -1318,7 +1328,7 @@ export PATH="${this.binDir}:$PATH"
       clack.log.error('Could not fetch available versions');
       return;
     }
-    
+
     // Add navigation options to the version choices, with master branch at the top
     const versionChoices = [
       { value: 'back', label: '← Back to main menu' },
@@ -1326,26 +1336,26 @@ export PATH="${this.binDir}:$PATH"
       { value: 'master', label: 'master (development branch)', hint: 'Latest development build' },
       ...availableVersions.map(v => ({ value: v, label: v }))
     ];
-    
+
     const version = await clack.select({
       message: 'Select Zig version:',
       options: versionChoices,
       initialValue: 'master'
     });
-    
+
     if (clack.isCancel(version)) {
       return;
     }
-    
+
     if (version === 'back') {
       return; // Go back to main menu
     }
-    
+
     if (version === 'quit') {
       console.log(colors.green('👋 Goodbye!'));
       process.exit(0);
     }
-    
+
     await this.downloadWithVersion(version);
   }
 
@@ -1369,25 +1379,25 @@ export PATH="${this.binDir}:$PATH"
         clack.log.success(`Now using Zig ${selectedVersion}`);
       }
     }
-    
+
     this.saveConfig();
   }
 
   public async listVersionsTUI(): Promise<void> {
     const choices = [];
-    
+
     // Add system zig if available (show first)
     if (this.config.systemZig) {
       const isCurrent = this.config.currentVersion === 'system' ? ' ← current' : '';
       choices.push(`System: ${this.config.systemZig.version} at ${this.config.systemZig.path}${isCurrent}`);
     }
-    
+
     // Add installed ziggy versions
     const availableVersions = Object.keys(this.config.downloads).filter(v => {
       const info = this.config.downloads[v];
       return info?.status === 'completed' && v !== 'system';
     });
-    
+
     for (const version of availableVersions) {
       const info = this.config.downloads[version];
       if (info?.status === 'completed') {
@@ -1395,14 +1405,14 @@ export PATH="${this.binDir}:$PATH"
         choices.push(`Ziggy: ${version} at ${info.path}${isCurrent}`);
       }
     }
-    
+
     if (choices.length === 0) {
       clack.log.warn('No Zig versions installed');
       return;
     }
-    
+
     clack.note(choices.join('\n'), 'Available Zig versions');
-    
+
     const action = await clack.select({
       message: 'What would you like to do?',
       options: [
@@ -1411,11 +1421,11 @@ export PATH="${this.binDir}:$PATH"
       ],
       initialValue: 'back'
     });
-    
+
     if (clack.isCancel(action) || action === 'back') {
       return; // Go back to main menu
     }
-    
+
     if (action === 'quit') {
       console.log(colors.green('👋 Goodbye!'));
       process.exit(0);
@@ -1440,7 +1450,7 @@ export PATH="${this.binDir}:$PATH"
         return `• ${v}${isCurrent}`;
       })
       .join('\n');
-    
+
     clack.note(versionsList, 'Installed Zig versions (managed by ziggy)');
 
     const choices = [
@@ -1451,9 +1461,9 @@ export PATH="${this.binDir}:$PATH"
 
     // Add option to keep current version if there is one
     if (this.config.currentVersion && this.config.currentVersion !== 'system') {
-      choices.push({ 
-        value: 'clean-except-current', 
-        label: `Clean all except current active version (${this.config.currentVersion})` 
+      choices.push({
+        value: 'clean-except-current',
+        label: `Clean all except current active version (${this.config.currentVersion})`
       });
     }
 
@@ -1492,7 +1502,7 @@ export PATH="${this.binDir}:$PATH"
 
   public async cleanAllVersions(): Promise<void> {
     const downloadedVersions = Object.keys(this.config.downloads);
-    
+
     const confirm = await clack.confirm({
       message: `Are you sure you want to delete all ${downloadedVersions.length} Zig versions? This cannot be undone.`,
       initialValue: false
@@ -1536,7 +1546,7 @@ export PATH="${this.binDir}:$PATH"
 
     spinner.stop(`Cleaned up ${cleaned} Zig installations`);
     clack.log.success('All Zig versions removed successfully');
-    
+
     if (this.config.systemZig) {
       clack.log.info(`Using system Zig: ${this.config.systemZig.version}`);
     } else {
@@ -1552,7 +1562,7 @@ export PATH="${this.binDir}:$PATH"
     }
 
     const versionsToDelete = Object.keys(this.config.downloads).filter(v => v !== currentVersion);
-    
+
     if (versionsToDelete.length === 0) {
       clack.log.info('No other versions to clean');
       return;
@@ -1615,7 +1625,7 @@ export PATH="${this.binDir}:$PATH"
     }
 
     const versionsToDelete = downloadedVersions.filter(v => v !== versionToKeep);
-    
+
     const confirm = await clack.confirm({
       message: `Keep ${versionToKeep} and delete ${versionsToDelete.length} other versions?`,
       initialValue: false
@@ -1654,20 +1664,20 @@ export PATH="${this.binDir}:$PATH"
 
   private async downloadWithVersion(version: string): Promise<void> {
     const installPath = join(this.ziggyDir, 'versions', version);
-    
+
     // Check if already installed
     const existing = this.config.downloads[version];
     if (existing && existing.status === 'completed') {
       clack.log.warn(`Zig ${version} is already installed at ${existing.path}`);
-      
+
       const reinstall = await clack.confirm({
         message: 'Do you want to reinstall it?',
         initialValue: false
       });
-      
+
       if (clack.isCancel(reinstall) || !reinstall) {
         clack.log.info('Installation skipped.');
-        
+
         // Show post-install options even when skipping
         const action = await clack.select({
           message: 'What would you like to do next?',
@@ -1682,14 +1692,14 @@ export PATH="${this.binDir}:$PATH"
           console.log(colors.green('👋 Goodbye!'));
           process.exit(0);
         }
-        
+
         // If they chose main-menu, we return and let the main loop continue
         return;
       }
     }
 
     console.log(colors.green(`\n🚀 Installing Zig ${version}...`));
-    
+
     // Update config to show download in progress
     this.config.downloads[version] = {
       version: version,
@@ -1718,18 +1728,18 @@ export PATH="${this.binDir}:$PATH"
       };
 
       await this.downloadZig(version, installPath);
-      
+
       // Mark as completed
       this.config.downloads[version]!.status = 'completed';
       this.saveConfig();
-      
+
       console.log(colors.green(`\n✅ Zig ${version} successfully installed!`));
-      
+
       // Create env file if it doesn't exist
       if (!existsSync(this.envPath)) {
         this.createEnvFile();
       }
-      
+
       // Auto-activate this version if no current version is set
       if (!this.config.currentVersion) {
         this.createSymlink(installPath, version);
@@ -1740,10 +1750,10 @@ export PATH="${this.binDir}:$PATH"
           const info = this.config.downloads[v];
           return info?.status === 'completed';
         });
-        
+
         // Add system version to count if available
         const totalVersions = availableVersions.length + (this.config.systemZig ? 1 : 0);
-        
+
         if (totalVersions > 1) {
           console.log(colors.yellow(`\nTo switch to this version, run: ${colors.cyan('ziggy use')}`));
         } else {
@@ -1756,18 +1766,18 @@ export PATH="${this.binDir}:$PATH"
           }
         }
       }
-      
+
       // Show platform-specific setup instructions
       this.showSetupInstructions();
-      
+
       // Offer user choice to quit or return to main menu
       await this.showPostInstallOptions();
-      
+
     } catch (error) {
       // Mark as failed
       this.config.downloads[version]!.status = 'failed';
       this.saveConfig();
-      
+
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error(colors.red('Download failed:'), errorMessage);
       throw error;
@@ -1777,32 +1787,78 @@ export PATH="${this.binDir}:$PATH"
   }
 
   private async showPostInstallOptions(): Promise<void> {
+    const options = [
+      { value: 'quit', label: 'Quit' },
+      { value: 'main-menu', label: 'Return to main menu' }
+    ];
+
+    // Add automatic PowerShell setup option for Windows
+    if (this.platform === 'windows') {
+      options.unshift({ value: 'setup-powershell', label: 'Add to PowerShell profile automatically' });
+    }
+
     const action = await clack.select({
       message: 'What would you like to do next?',
-      options: [
-        { value: 'quit', label: 'Quit' },
-        { value: 'main-menu', label: 'Return to main menu' }
-      ],
-      initialValue: 'quit'
+      options,
+      initialValue: this.platform === 'windows' ? 'setup-powershell' : 'quit'
     });
 
     if (clack.isCancel(action) || action === 'quit') {
       console.log(colors.green('👋 Goodbye!'));
       process.exit(0);
     }
-    
+
+    if (action === 'setup-powershell') {
+      await this.setupPowerShellProfile();
+      return;
+    }
+
     // If they chose main-menu, we just return and let the main loop continue
+  }
+
+  private async setupPowerShellProfile(): Promise<void> {
+    try {
+      const profilePath = `${process.env.USERPROFILE}\\Documents\\PowerShell\\Microsoft.PowerShell_profile.ps1`;
+      const envLine = `. "${this.envPath}"`;
+      
+      // Check if profile directory exists, create if not
+      const profileDir = dirname(profilePath);
+      if (!existsSync(profileDir)) {
+        mkdirSync(profileDir, { recursive: true });
+      }
+      
+      // Check if the line already exists in the profile
+      let profileContent = '';
+      if (existsSync(profilePath)) {
+        profileContent = readFileSync(profilePath, 'utf8');
+      }
+      
+      if (profileContent.includes(envLine)) {
+        console.log(colors.yellow('✓ PowerShell profile already configured!'));
+      } else {
+        // Add the line to the profile
+        appendFileSync(profilePath, `\n${envLine}\n`);
+        console.log(colors.green('✓ PowerShell profile updated successfully!'));
+        console.log(colors.yellow('Please restart your PowerShell terminal to use Zig.'));
+      }
+      
+    } catch (error) {
+      console.error(colors.red('Failed to update PowerShell profile:'), error);
+      console.log(colors.yellow('Please add this line manually to your PowerShell profile:'));
+      console.log(colors.green(`. "${this.envPath}"`));
+    }
   }
 
   private showSetupInstructions(): void {
     console.log(colors.yellow('\n📋 Setup Instructions:'));
-    
+
     if (this.platform === 'windows') {
       // Windows-specific instructions
       console.log(colors.cyan('To start using Zig:'));
       console.log(colors.green(`• PowerShell: Add to your profile: . "${this.envPath}"`));
       console.log(colors.green(`• Command Prompt: Add ${this.binDir} to your PATH manually`));
-      console.log(colors.yellow('\nFor PowerShell, add this line to your $PROFILE file and restart your terminal.'));
+      console.log(colors.yellow(`\nFor PowerShell, add this line to your profile file and restart your terminal:`));
+      console.log(colors.gray(`Profile location: $PROFILE (typically: ${process.env.USERPROFILE}\\Documents\\PowerShell\\Microsoft.PowerShell_profile.ps1)`));
     } else if (this.platform === 'linux' || this.platform === 'macos') {
       // Unix-like systems (Linux, macOS)
       const ziggyDirVar = process.env.ZIGGY_DIR ? '$ZIGGY_DIR' : '$HOME/.ziggy';
@@ -1811,7 +1867,7 @@ export PATH="${this.binDir}:$PATH"
       console.log('');
       console.log(colors.yellow('Or run this command now to use Zig in the current session:'));
       console.log(colors.green(`source ${this.envPath}`));
-      
+
       // Shell-specific file hints
       const shellInfo = this.detectShell();
       console.log(colors.gray(`\nShell profile location for ${shellInfo.shell}: ${shellInfo.profileFile}`));
@@ -1826,7 +1882,7 @@ export PATH="${this.binDir}:$PATH"
 
   private showSummary(changes: string[]): void {
     if (changes.length === 0) return;
-    
+
     console.log(colors.yellow('\n📋 Summary of changes made:'));
     changes.forEach(change => {
       console.log(colors.cyan(`• ${change}`));
@@ -1840,7 +1896,7 @@ export PATH="${this.binDir}:$PATH"
 (async () => {
   // Setup signal handlers for graceful exit
   setupSignalHandlers();
-  
+
   const program = setupCLI();
 
   // Parse arguments
