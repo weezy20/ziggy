@@ -12,6 +12,7 @@ import which from 'which';
 import { initCommand } from './commands/init';
 import { cloneTemplateRepository } from './utils/template';
 import { colors } from './utils/colors';
+import { setupCLI } from './cli';
 
 // Handle Ctrl+C gracefully
 let currentDownload: { cleanup?: () => Promise<void> } | null = null;
@@ -1978,76 +1979,7 @@ export PATH="${this.binDir}:$PATH"
   // Setup signal handlers for graceful exit
   setupSignalHandlers();
   
-  const program = new Command();
-  
-  program
-    .name('ziggy')
-    .description('Zig Version Manager - Download, install, and manage Zig versions')
-    .version('1.0.0');
-
-  program
-    .command('use')
-    .description('Select which Zig version to use')
-    .action(async () => {
-      try {
-        const installer = new ZigInstaller();
-        await installer.handleUseCommand();
-      } catch (error) {
-        console.error(colors.red('Error:'), error);
-        process.exit(1);
-      }
-    });
-
-  program
-    .command('list')
-    .description('List installed Zig versions')
-    .action(async () => {
-      try {
-        const installer = new ZigInstaller();
-        await installer.listVersions();
-      } catch (error) {
-        console.error(colors.red('Error:'), error);
-        process.exit(1);
-      }
-    });
-
-  program
-    .command('clean')
-    .description('Clean up Zig installations')
-    .action(async () => {
-      try {
-        const installer = new ZigInstaller();
-        await installer.handleCleanTUI();
-      } catch (error) {
-        console.error(colors.red('Error:'), error);
-        process.exit(1);
-      }
-    });
-
-  program
-    .command('init')
-    .description('Initialize a new Zig project from template')
-    .argument('[project-name]', 'Name of the project to create')
-    .action(async (projectName?: string) => {
-      try {
-        await initCommand(projectName);
-      } catch (error) {
-        console.error(colors.red('Error:'), error);
-        process.exit(1);
-      }
-    });
-
-  // Default action (interactive mode)
-  program
-    .action(async () => {
-      try {
-        const installer = new ZigInstaller();
-        await installer.run();
-      } catch (error) {
-        console.error(colors.red('Fatal error:'), error);
-        process.exit(1);
-      }
-    });
+  const program = setupCLI();
 
   // Parse arguments
   await program.parseAsync(process.argv);
