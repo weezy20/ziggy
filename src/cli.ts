@@ -1,6 +1,9 @@
 import { Command } from 'commander';
 import { ZigInstaller } from './index';
 import { initCommand } from './commands/init';
+import { useCommand } from './commands/use';
+import { listCommand } from './commands/list';
+import { cleanCommand } from './commands/clean';
 import { colors } from './utils/colors';
 
 export function setupCLI(): Command {
@@ -31,8 +34,7 @@ export function setupCLI(): Command {
     .description('Select which Zig version to use')
     .action(async () => {
       try {
-        const installer = new ZigInstaller();
-        await installer.handleUseCommand();
+        await useCommand();
       } catch (error) {
         console.error(colors.red('Error:'), error);
         process.exit(1);
@@ -45,8 +47,7 @@ export function setupCLI(): Command {
     .description('List installed Zig versions')
     .action(async () => {
       try {
-        const installer = new ZigInstaller();
-        await installer.listVersions();
+        await listCommand();
       } catch (error) {
         console.error(colors.red('Error:'), error);
         process.exit(1);
@@ -59,8 +60,7 @@ export function setupCLI(): Command {
     .description('Clean up Zig installations')
     .action(async () => {
       try {
-        const installer = new ZigInstaller();
-        await installer.handleCleanTUI();
+        await cleanCommand();
       } catch (error) {
         console.error(colors.red('Error:'), error);
         process.exit(1);

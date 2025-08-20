@@ -113,7 +113,7 @@ export class ZigInstaller {
   private binDir: string;
   private envPath: string;
   private configPath: string;
-  private config: ZiggyConfig;
+  public config: ZiggyConfig;
 
   constructor() {
     this.arch = this.detectArch();
@@ -1410,89 +1410,7 @@ export PATH="${this.binDir}:$PATH"
     await this.useVersion(selectedVersion);
   }
 
-  public async handleUseCommand(): Promise<void> {
-    const choices = [];
-    
-    // Add system zig if available (show first)
-    if (this.config.systemZig) {
-      choices.push({ 
-        value: 'system',
-        label: `${this.config.systemZig.version} (system installation)` 
-      });
-    }
-    
-    // Add installed ziggy versions (only non-system versions)
-    const availableVersions = Object.keys(this.config.downloads).filter(v => {
-      const info = this.config.downloads[v];
-      return info?.status === 'completed' && !info.isSystemWide && v !== 'system';
-    });
-    
-    for (const version of availableVersions) {
-      const isCurrent = this.config.currentVersion === version ? ' (current)' : '';
-      choices.push({ 
-        value: version,
-        label: `${version} (downloaded by ziggy)${isCurrent}` 
-      });
-    }
-    
-    if (choices.length === 0) {
-      clack.log.warn('No Zig versions available to use. Download a version first.');
-      return;
-    }
-    
-    const selectedVersion = await clack.select({
-      message: 'Select Zig version to use:',
-      options: choices,
-      initialValue: choices.length > 0 ? choices[0]?.value || 'back' : 'back'
-    });
-    
-    if (clack.isCancel(selectedVersion)) {
-      return;
-    }
-    
-    await this.useVersion(selectedVersion);
-  }
-
-  public async listVersions(): Promise<void> {
-    console.log(colors.yellow('\n📦 Installed Zig Versions:\n'));
-    
-    const installedVersions = Object.keys(this.config.downloads);
-    
-    if (installedVersions.length === 0 && !this.config.systemZig) {
-      console.log(colors.gray('No Zig versions installed.'));
-      console.log(colors.yellow('Run `ziggy` to download and install Zig versions.'));
-      return;
-    }
-
-    // Show system Zig if available
-    if (this.config.systemZig) {
-      const isCurrent = this.config.currentVersion === 'system' ? colors.green(' (current)') : '';
-      console.log(`${colors.cyan('system')} ${this.config.systemZig.version}${isCurrent}`);
-      console.log(`  ${colors.gray('Path:')} ${this.config.systemZig.path}`);
-    }
-
-    // Show downloaded versions
-    for (const version of installedVersions) {
-      if (version === 'system') continue; // Skip system entry in downloads
-      
-      const info = this.config.downloads[version];
-      if (!info) continue;
-      
-      const isCurrent = this.config.currentVersion === version ? colors.green(' (current)') : '';
-      const statusColor = info.status === 'completed' ? colors.green :
-                         info.status === 'downloading' ? colors.yellow :
-                         colors.red;
-      
-      console.log(`${colors.cyan(version)}${isCurrent}`);
-      console.log(`  ${colors.gray('Status:')} ${statusColor(info.status)}`);
-      console.log(`  ${colors.gray('Path:')} ${info.path}`);
-      console.log(`  ${colors.gray('Downloaded:')} ${new Date(info.downloadedAt).toLocaleDateString()}`);
-    }
-
-    console.log('');
-  }
-
-  private async useVersion(selectedVersion: string): Promise<void> {
+  public async useVersion(selectedVersion: string): Promise<void> {
     if (selectedVersion === 'system') {
       // Use system zig
       if (this.config.systemZig) {
@@ -1631,7 +1549,7 @@ export PATH="${this.binDir}:$PATH"
     }
   }
 
-  private async cleanAllVersions(): Promise<void> {
+  public async cleanAllVersions(): Promise<void> {
     const downloadedVersions = Object.keys(this.config.downloads);
     
     const confirm = await clack.confirm({
@@ -1685,7 +1603,7 @@ export PATH="${this.binDir}:$PATH"
     }
   }
 
-  private async cleanExceptCurrent(): Promise<void> {
+  public async cleanExceptCurrent(): Promise<void> {
     const currentVersion = this.config.currentVersion;
     if (!currentVersion || currentVersion === 'system') {
       clack.log.error('No current version set or using system version');
@@ -1731,7 +1649,7 @@ export PATH="${this.binDir}:$PATH"
     clack.log.success(`Kept ${currentVersion} as active version`);
   }
 
-  private async selectVersionToKeep(): Promise<void> {
+  public async selectVersionToKeep(): Promise<void> {
     const downloadedVersions = Object.keys(this.config.downloads).filter(v => {
       const info = this.config.downloads[v];
       return info?.status === 'completed' && v !== 'system';
