@@ -597,7 +597,7 @@ export PATH="${this.binDir}:$PATH"
     return this.platform === 'windows' ? 'zip' : 'tar.xz';
   }
 
-  private async getAvailableVersions(): Promise<string[]> {
+  public async getAvailableVersions(): Promise<string[]> {
     try {
       const response = await fetch('https://ziglang.org/download/index.json');
       if (!response.ok) {
@@ -612,7 +612,7 @@ export PATH="${this.binDir}:$PATH"
     }
   }
 
-  private async validateVersion(version: string): Promise<boolean> {
+  public async validateVersion(version: string): Promise<boolean> {
     try {
       const response = await fetch(`https://ziglang.org/download/${version}/index.json`);
       if (!response.ok) {
@@ -1415,7 +1415,7 @@ export PATH="${this.binDir}:$PATH"
     await this.downloadWithVersion(version);
   }
 
-  private async handleDownloadSpecificTUI(): Promise<void> {
+  public async handleDownloadSpecificTUI(): Promise<void> {
     const spinner = clack.spinner();
     spinner.start('Fetching available versions...');
 
@@ -1755,7 +1755,7 @@ export PATH="${this.binDir}:$PATH"
     await this.showPostActionOptions();
   }
 
-  private async downloadWithVersion(version: string): Promise<void> {
+  public async downloadWithVersion(version: string): Promise<void> {
     const installPath = join(this.ziggyDir, 'versions', version);
 
     // Check if already installed
@@ -1848,7 +1848,7 @@ export PATH="${this.binDir}:$PATH"
         const totalVersions = availableVersions.length + (this.config.systemZig ? 1 : 0);
 
         if (totalVersions > 1) {
-          console.log(colors.yellow(`\nTo switch to this version, run: ${colors.cyan('ziggy use')} or select Switch active Zig version from the main menu `));
+          console.log(colors.yellow(`\nTo switch to this version, run: ${colors.cyan(`ziggy use ${version}`)} or select ${colors.cyan('Switch active Zig version')} from the main menu.`));
         } else {
           console.log(colors.green(`✓ Zig ${version} is now your active version`));
           // Auto-activate if it's the only ziggy-managed version

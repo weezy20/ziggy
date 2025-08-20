@@ -33,9 +33,10 @@ export function setupCLI(): Command {
   program
     .command('use')
     .description('Select which Zig version to use')
-    .action(async () => {
+    .argument('[version]', 'Specific version to use (e.g., "master", "0.14.1")')
+    .action(async (version?: string) => {
       try {
-        await useCommand();
+        await useCommand(false, version);
       } catch (error) {
         console.error(colors.red('Error:'), error);
         process.exit(1);
