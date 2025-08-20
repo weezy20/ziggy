@@ -65,15 +65,115 @@ export async function setupCommand(): Promise<void> {
     // Unix-like systems
     console.log(colors.yellow('Setting up shell environment...'));
     
-    const shells = [
-      { name: 'Bash', file: '~/.bashrc', line: `source "${installer.envPath}"` },
-      { name: 'Zsh', file: '~/.zshrc', line: `source "${installer.envPath}"` },
-      { name: 'Fish', file: '~/.config/fish/config.fish', line: `source "${installer.envPath}"` }
+    // Detect current shell
+    const currentShell = process.env.SHELL?.split('/').pop() || 'bash';
+    
+    const shellConfigs = [
+      { name: 'Bash', file: '~/.bashrc', actualFile: process.env.HOME + '/.bashrc', shell: 'bash' },
+      { name: 'Zsh', file: '~/.zshrc', actualFile: process.env.HOME + '/.zshrc', shell: 'zsh' },
+      { name: 'Fish', file: '~/.config/fish/config.fish', actualFile: process.env.HOME + '/.config/fish/config.fish', shell: 'fish' }
     ];
     
-    console.log(colors.cyan('Add one of these lines to your shell profile:'));
-    for (const shell of shells) {
-      console.log(colors.green(`• ${shell.name} (${shell.file}): ${shell.line}`));
+    // Find the current shell config
+    let defaultConfig = shellConfigs.find(s => s.shell === currentShell) || shellConfigs[0];
+    
+    // Offer automatic setup
+    const choices = [
+      { value: 'auto', label: `Automatically add to ${defaultConfig!.name} profile (${defaultConfig!.file})` },
+      { value: 'manual', label: 'Show manual setup instructions' },
+      { value: 'custom', label: 'Choose a different shell profile' }
+    ];
+    
+    const setupChoice = await clack.select({
+      message: 'How would you like to setup your shell environment?',
+      options: choices,
+      initialValue: 'auto'
+    });
+    
+    if (clack.isCancel(setupChoice)) {
+      console.log(colors.yellow('Setup cancelled.'));
+      return;
+    }
+    
+    if (setupChoice === 'custom') {
+      // Let user choose shell
+      const shellChoices = shellConfigs.map(s => ({
+        value: s.actualFile,
+        label: `${s.name} (${s.file})`
+      }));
+      
+      const selectedShell = await clack.select({
+        message: 'Select your shell profile:',
+        options: shellChoices,
+        initialValue: defaultConfig!.actualFile
+      });
+      
+      if (clack.isCancel(selectedShell)) {
+        console.log(colors.yellow('Setup cancelled.'));
+        return;
+      }
+      
+      defaultConfig = shellConfigs.find(s => s.actualFile === selectedShell) || defaultConfig;
+    }
+    
+    if (setupChoice === 'auto' || setupChoice === 'custom') {
+      // Automatic setup
+      const envLine = `source "${installer.envPath}"`;
+      const profilePath = defaultConfig!.actualFile;
+      const profileName = defaultConfig!.file;
+      
+      console.log(colors.gray(`Profile: ${profileName}`));
+      console.log(colors.gray(`Adding this line -> ${envLine}`));
+      
+      const confirm = await clack.confirm({
+        message: `Add Ziggy to your ${defaultConfig!.name} profile?`,
+        initialValue: true
+      });
+      
+      if (clack.isCancel(confirm) || !confirm) {
+        console.log(colors.yellow('Setup cancelled.'));
+        return;
+      }
+      
+      try {
+        // Create profile directory if it doesn't exist (for fish)
+        const profileDir = dirname(profilePath);
+        if (!existsSync(profileDir)) {
+          mkdirSync(profileDir, { recursive: true });
+        }
+        
+        // Check if line already exists
+        if (existsSync(profilePath)) {
+          const content = require('fs').readFileSync(profilePath, 'utf8');
+          if (content.includes(installer.envPath)) {
+            console.log(colors.green(`✓ Ziggy is already configured in your ${defaultConfig!.name} profile`));
+            return;
+          }
+        }
+        
+        // Add the line
+        appendFileSync(profilePath, `\n${envLine}\n`);
+        
+        console.log(colors.green(`✅ Successfully added Ziggy to ${defaultConfig!.name} profile!`));
+        console.log(colors.yellow(`\n🔄 To start using Ziggy immediately, run:`));
+        console.log(colors.cyan(`source ${profileName}`));
+        console.log(colors.yellow('Or restart your terminal.'));
+        
+      } catch (error) {
+        console.error(colors.red('❌ Failed to setup profile:'), error);
+        console.log(colors.yellow('\n📝 Manual setup required:'));
+        console.log(colors.cyan(`echo '${envLine}' >> ${profileName}`));
+      }
+      
+    } else {
+      // Manual setup instructions
+      console.log(colors.cyan('Add one of these lines to your shell profile:'));
+      for (const shell of shellConfigs) {
+        const envLine = `source "${installer.envPath}"`;
+        console.log(colors.green(`• ${shell.name} (${shell.file}): ${envLine}`));
+      }
+      console.log(colors.yellow('\nAfter adding the line, restart your terminal or run:'));
+      console.log(colors.cyan(`source <your-profile-file>`));
     }
   }
 }

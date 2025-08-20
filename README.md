@@ -1,9 +1,9 @@
 # Ziggy
 
-A fast, ez to use, Zig programming language installer and version manager powered by Bun.
+A fast, easy to use, Zig programming language installer and version manager powered by Bun.
 
 ## Prerequisites: 
-[bun](https://bun.com/)
+- [bun](https://bun.com/)
 
 ## Installation
 
@@ -13,67 +13,68 @@ You can install ziggy globally using Bun:
 bun install -g @weezy20/ziggy
 ```
 
+Or you can use it without installing anything using `bunx`:
+
+```sh
+bunx @weezy20/ziggy -h
+```
+
+If you want a binary executable you can build it locally:
+
+```sh
+bun install && bun build;
+./ziggy --help
+```
+
 ## Usage
+Run ziggy to start the interactive TUI to go through the one time setup which well setup a `ZIGGY_DIR` which is where it's managed installations live. By default this is `$HOME/.ziggy` but maybe configured using the environment variable `ZIGGY_DIR`
 
-First install a zig of your choice following the prompts. By default ziggy works with this folder `$HOME/.ziggy` but you can specify a different path with `ZIGGY_DIR` env var. 
+Here an `env` file will be created which we will need to add to our shell profile (`source ~/.ziggy/env`) in order to make the binaries available in our `PATH`. If you're not sure just follow through the TUI and it'll guide you based upon your operating system. Or you can also run `ziggy setup` for an automated approach.
 
-```bash
-# If installed globally then just 
-ziggy # or ziggy -h to check out available subcommands
 
-# Use without installing (run directly with Bunx)
-bunx @weezy20/ziggy
-```
-
-**Note:** This tool requires Bun and works best with `bunx`. While the package is available on npm, it requires Bun runtime to execute.
-```
-Or if you clone this repo: 
+### Example usage:
 
 ```bash
-# Install dependencies
-bun install
+# Start interactive TUI (main interface)
+ziggy
 
-# Run the app
-bun start
-```
-Or if you want to install a binary into your system
+# Initialize a new Zig project interactively (TUI)
+# Provides two options: the standard zig app template and a barebones app template.
+ziggy init                   
 
-```bash
-bun install
-bun run build
-# This creates a `ziggy` executable in your cwd that you can put anywhere you want
-```
+# Initialize with a specific project name
+ziggy init my-app 
 
-Ziggy also takes into account any system-wide zig installations you might have and those are not mutated in anyway. Ziggy lives at the `ZIGGY_DIR` environment variable which is set to `~/.ziggy` by default. Ziggy will only mutate contents of this folder so you don't have to manage it manually.
+# Switch Zig versions interactively (TUI)
+ziggy use
 
-To start using Zig binaries provided by Ziggy all you need to do is after  downloading a specific version using ziggy add `source ~/.ziggy/env` or `source $ZIGGY_DIR/env` to your shell profile such as `.bashrc` or `.zshrc`. This file appends the ziggy managed `bin` folder to the current `$PATH` environment variable. This file is only generated after you download a zig using ziggy so sourcing your shell profile before using ziggy might result in an error. 
+# Switch to a specific version directly
+ziggy use 0.14.1              # Switches to Zig 0.14.1 (downloads if not installed)
+ziggy use master              # Switches to Zig master branch (downloads if not installed)
+ziggy use system              # Switches to system-installed Zig. Ziggy detects any zig installation already in your path and refers to it as `system`
 
-For PowerShell users, add the following to your PowerShell profile:
-```powershell
-# Add to your PowerShell profile (usually located at $PROFILE)
-. "$env:USERPROFILE\.ziggy\env.ps1"
-```
+# List all installed Zig versions
+ziggy list
 
-For Command Prompt users, you'll need to manually add the Zig binary path to your system PATH environment variable through System Properties > Environment Variables, or run:
-```cmd
-set PATH=%USERPROFILE%\.ziggy\bin;%PATH%
+# Clean up Ziggy managed installations
+ziggy clean
+
+# Setup ziggy environment for current shell
+ziggy setup
 ```
 
 ## Commands
 
-### `ziggy init [project-name]`
+- **`ziggy`** - Start the interactive TUI interface
+- **`ziggy init [project-name]`** - Create a new Zig project from templates
+- **`ziggy use [version]`** - Switch Zig versions (interactive or direct)
+- **`ziggy list`** - List installed Zig versions
+- **`ziggy clean`** - Clean up Zig installations
+- **`ziggy setup`** - Setup shell environment (adds source env to shell profile for PATH)
 
-Initialize a new Zig project with two template options: a minimal [zig-app-template](https://github.com/weezy20/zig-app-template) (works without Zig installed) or the standard `zig init` template (requires active Zig installation). The command will automatically detect available options and let you choose interactively.
 
-```bash
-# Initialize a new project interactively
-ziggy init
-
-# Initialize with a specific name
-ziggy init my-awesome-project
-```
 
 ## Uninstallation
-Ziggy doesn't install anything on your system except the contents of `ZIGGY_DIR`. You can delete the folder and be done with it. If you want to clean up zig installations use `ziggy clean`. 
+Ziggy doesn't install anything on your system except the contents of `ZIGGY_DIR`. You can delete the folder and be done with it. If you want to clean up specific ziggy managed installations use `ziggy clean`. Ziggy will never do anything with your system zig. 
 
 If you used `bun install -g` to install ziggy then you can use `bun remove -g @weezy20/ziggy` to undo the same.

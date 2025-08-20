@@ -71,7 +71,7 @@ export class ZigInstaller {
   private cwd: string;
   private ziggyDir: string;
   private binDir: string;
-  private envPath: string;
+  public envPath: string;
   private configPath: string;
   public config: ZiggyConfig;
 
