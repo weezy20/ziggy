@@ -1,19 +1,10 @@
 import { existsSync, rmSync, mkdirSync, createWriteStream, readdirSync, renameSync } from 'fs';
 import { resolve, join } from 'path';
 import { extract as extractZip } from 'zip-lib';
+import { colors } from './colors';
 
 // Lean Zig app template without the bloat
 const LEAN_ZIG_APP_TEMPLATE_ARCHIVE = 'https://codeload.github.com/weezy20/zig-app-template/zip/refs/heads/master';
-
-// Console colors using ANSI escape codes
-const colors = {
-  red: (text: string) => `\x1b[31m${text}\x1b[0m`,
-  green: (text: string) => `\x1b[32m${text}\x1b[0m`,
-  yellow: (text: string) => `\x1b[33m${text}\x1b[0m`,
-  blue: (text: string) => `\x1b[34m${text}\x1b[0m`,
-  cyan: (text: string) => `\x1b[36m${text}\x1b[0m`,
-  gray: (text: string) => `\x1b[90m${text}\x1b[0m`,
-};
 
 
 export async function cloneTemplateRepository(

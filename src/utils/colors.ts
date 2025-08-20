@@ -1,7 +1,8 @@
 import { isatty } from 'tty';
 
 // Check if output is going to a TTY (terminal)
-const isTTY = isatty(Bun.stdout.fd);
+// In Bun, stdout file descriptor is 1
+const isTTY = isatty(1);
 
 /**
  * Console colors using ANSI escape codes
