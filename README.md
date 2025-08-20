@@ -59,5 +59,19 @@ For Command Prompt users, you'll need to manually add the Zig binary path to you
 set PATH=%USERPROFILE%\.ziggy\bin;%PATH%
 ```
 
+## Commands
+
+### `ziggy init [project-name]`
+
+Initialize a new Zig project with two template options: a minimal [zig-app-template](https://github.com/weezy20/zig-app-template) (works without Zig installed) or the standard `zig init` template (requires active Zig installation). The command will automatically detect available options and let you choose interactively.
+
+```bash
+# Initialize a new project interactively
+ziggy init
+
+# Initialize with a specific name
+ziggy init my-awesome-project
+```
+
 ## Uninstallation
 Ziggy doesn't install anything on your system except the contents of `ZIGGY_DIR`. You can delete the folder and be done with it. If you want to clean up zig installations use `ziggy clean`. 

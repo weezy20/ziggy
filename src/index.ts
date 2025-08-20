@@ -8,6 +8,8 @@ import { xz } from '@napi-rs/lzma';
 import { extract as extractZip } from 'zip-lib';
 import { Command } from 'commander';
 import * as clack from '@clack/prompts';
+import { initCommand } from './commands/init';
+import { cloneTemplateRepository } from './utils/template';
 
 // Console colors using ANSI escape codes
 const colors = {
@@ -24,7 +26,7 @@ let currentDownload: { cleanup?: () => Promise<void> } | null = null;
 
 function setupSignalHandlers() {
   const gracefulExit = async () => {
-    console.log(colors.yellow('\n\n🛑Interrupt: Shutting down ...'));
+    console.log(colors.yellow('\n\n🛑 Interrupt: Shutting down ...'));
     
     // Clean up any ongoing downloads
     if (currentDownload?.cleanup) {
@@ -109,7 +111,7 @@ interface ZigVersions {
   [key: string]: ZigVersion;
 }
 
-class ZigInstaller {
+export class ZigInstaller {
   private arch: string;
   private platform: string;
   private os: string;
@@ -638,7 +640,7 @@ export PATH="${this.binDir}:$PATH"
       });
 
       process.stdout.write('\r' + ' '.repeat(80) + '\r');
-      console.log(colors.green('Download completedd!'));
+      console.log(colors.green('Download completed!'));
 
       // Extract the archive
       console.log(colors.blue('Starting extraction process...'));
@@ -1091,6 +1093,7 @@ export PATH="${this.binDir}:$PATH"
     // Main menu loop
     while (true) {
       const choices = [
+        { value: 'create-project', label: 'Create new Zig project' },
         { value: 'download-latest', label: 'Download latest stable Zig' },
         { value: 'download-specific', label: 'Download specific Zig version or master branch' },
         { value: 'list-versions', label: 'List installed Zig versions' }
@@ -1099,7 +1102,7 @@ export PATH="${this.binDir}:$PATH"
       // Add use command if versions are available
       const hasVersions = Object.keys(this.config.downloads).length > 0 || this.config.systemZig;
       if (hasVersions) {
-        choices.push({ value: 'use-version', label: 'Switch Zig version' });
+        choices.push({ value: 'use-version', label: 'Switch active Zig version' });
       }
 
       // Add clean command if there are versions to clean
@@ -1123,6 +1126,9 @@ export PATH="${this.binDir}:$PATH"
 
       try {
         switch (action) {
+          case 'create-project':
+            await this.handleCreateProjectTUI();
+            break;
           case 'download-latest':
             await this.handleDownloadLatestTUI();
             break;
@@ -1156,6 +1162,148 @@ export PATH="${this.binDir}:$PATH"
         if (clack.isCancel(continueChoice) || !continueChoice) {
           console.log(colors.green('👋 Goodbye!'));
           process.exit(0);
+        }
+      }
+    }
+  }
+
+  private async handleCreateProjectTUI(): Promise<void> {
+    console.log(colors.cyan('🚀 Create New Zig Project'));
+    console.log();
+
+    // Ask for project name
+    const projectName = await clack.text({
+      message: 'What is the name of your project?',
+      placeholder: 'my-zig-app',
+      validate: (value) => {
+        if (!value) return 'Project name is required';
+        if (!/^[a-zA-Z0-9_-]+$/.test(value)) {
+          return 'Project name can only contain letters, numbers, underscores, and hyphens';
+        }
+        return undefined;
+      }
+    });
+
+    if (clack.isCancel(projectName)) {
+      return;
+    }
+
+    // Check if directory already exists
+    const targetPath = resolve(process.cwd(), projectName);
+    if (existsSync(targetPath)) {
+      clack.log.error(`Directory '${projectName}' already exists`);
+      return;
+    }
+
+    // Check for active Zig installations
+    const hasActiveZig = this.config.currentVersion || this.config.systemZig;
+    
+    const templateChoices = [
+      { value: 'back', label: '← Back to main menu' },
+      { value: 'ziggy', label: 'Lean zig-app-template', hint: 'Bare bones zig-app-template with {main, build}.zig, a .gitignore and empty README' }
+    ];
+
+    // Add zig init option if Zig is available
+    if (hasActiveZig) {
+      const zigVersion = this.config.currentVersion === 'system' && this.config.systemZig 
+        ? this.config.systemZig.version 
+        : this.config.currentVersion;
+      
+      templateChoices.push({ 
+        value: 'zig-init', 
+        label: `Standard Zig template (Same as \`zig init\`)`, 
+        hint: `Using Zig ${zigVersion}` 
+      });
+    }
+
+    const templateChoice = await clack.select({
+      message: hasActiveZig 
+        ? 'Choose project template:' 
+        : 'Choose project template: (zig init requires an active Zig installation)',
+      options: templateChoices,
+      initialValue: 'ziggy'
+    });
+
+    if (clack.isCancel(templateChoice) || templateChoice === 'back') {
+      return;
+    }
+
+    try {
+      if (templateChoice === 'ziggy') {
+        // Use ziggy template
+        const spinner = clack.spinner();
+        spinner.start('Creating project...');
+        
+        await cloneTemplateRepository(targetPath, (message: string) => {
+          spinner.message(message);
+        });
+        
+        spinner.stop('✓ Project created successfully!');
+        
+        console.log();
+        console.log(colors.green('🎉 Project created successfully with Ziggy template!'));
+        console.log();
+        console.log(colors.cyan('Next steps:'));
+        console.log(colors.gray(`  cd ${projectName}`));
+        console.log(colors.gray('  zig build run'));
+        console.log();
+        console.log(colors.yellow('Happy coding! 🦎'));
+        console.log();
+        process.exit(0);
+        
+      } else if (templateChoice === 'zig-init') {
+        // Use zig init
+        const spinner = clack.spinner();
+        spinner.start('Creating project with zig init...');
+        
+        // Create the directory first
+        mkdirSync(targetPath, { recursive: true });
+        
+        // Get the active zig command
+        let zigCommand = 'zig';
+        if (this.config.currentVersion === 'system' && this.config.systemZig) {
+          zigCommand = this.config.systemZig.path;
+        } else if (this.config.currentVersion) {
+          // Use the symlinked zig from ziggy
+          zigCommand = join(this.binDir, 'zig');
+        }
+        
+        // Run zig init in the target directory
+        const result = Bun.spawnSync([zigCommand, 'init'], { 
+          cwd: targetPath,
+          stdout: 'pipe',
+          stderr: 'pipe'
+        });
+        
+        if (result.exitCode !== 0) {
+          spinner.stop('Failed');
+          const errorOutput = result.stderr?.toString() || 'Unknown error';
+          throw new Error(`zig init failed: ${errorOutput}`);
+        }
+        
+        spinner.stop('✓ Project created successfully!');
+        
+        console.log();
+        console.log(colors.green('🎉 Project created successfully with zig init!'));
+        console.log();
+        console.log(colors.cyan('Next steps:'));
+        console.log(colors.gray(`  cd ${projectName}`));
+        console.log(colors.gray('  zig build run'));
+        console.log();
+        console.log(colors.yellow('Happy coding! 🦎'));
+        console.log();
+        process.exit(0);
+      }
+      
+    } catch (error) {
+      clack.log.error(`Failed to create project: ${error instanceof Error ? error.message : String(error)}`);
+      
+      // Clean up if directory was created
+      if (existsSync(targetPath)) {
+        try {
+          rmSync(targetPath, { recursive: true, force: true });
+        } catch (cleanupError) {
+          console.warn(colors.yellow(`⚠ Failed to clean up directory: ${cleanupError}`));
         }
       }
     }
@@ -1794,6 +1942,19 @@ export PATH="${this.binDir}:$PATH"
       try {
         const installer = new ZigInstaller();
         await installer.handleCleanTUI();
+      } catch (error) {
+        console.error(colors.red('Error:'), error);
+        process.exit(1);
+      }
+    });
+
+  program
+    .command('init')
+    .description('Initialize a new Zig project from template')
+    .argument('[project-name]', 'Name of the project to create')
+    .action(async (projectName?: string) => {
+      try {
+        await initCommand(projectName);
       } catch (error) {
         console.error(colors.red('Error:'), error);
         process.exit(1);
