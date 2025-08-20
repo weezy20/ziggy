@@ -8,6 +8,7 @@ import { xz } from '@napi-rs/lzma';
 import { extract as extractZip } from 'zip-lib';
 import { Command } from 'commander';
 import * as clack from '@clack/prompts';
+import which from 'which';
 import { initCommand } from './commands/init';
 import { cloneTemplateRepository } from './utils/template';
 import { colors } from './utils/colors';
@@ -144,16 +145,13 @@ export class ZigInstaller {
 
   private detectSystemZig() {
     try {
-      const result = Bun.spawnSync(['which', 'zig'], { stdout: 'pipe' });
-      if (result.exitCode === 0) {
-        const zigPath = result.stdout.toString().trim();
-        if (zigPath && !zigPath.includes(this.ziggyDir)) {
-          // Get version
-          const versionResult = Bun.spawnSync([zigPath, 'version'], { stdout: 'pipe' });
-          if (versionResult.exitCode === 0) {
-            const version = versionResult.stdout.toString().trim();
-            this.config.systemZig = { path: zigPath, version };
-          }
+      const zigPath = which.sync('zig', { nothrow: true });
+      if (zigPath && !zigPath.includes(this.ziggyDir)) {
+        // Get version
+        const versionResult = Bun.spawnSync([zigPath, 'version'], { stdout: 'pipe' });
+        if (versionResult.exitCode === 0) {
+          const version = versionResult.stdout.toString().trim();
+          this.config.systemZig = { path: zigPath, version };
         }
       }
     } catch (error) {
@@ -900,6 +898,9 @@ export PATH="${this.binDir}:$PATH"
         console.log(colors.yellow('='.repeat(60)));
         
         changes.push('Provided manual setup instructions');
+        
+        // Offer user choice to quit or return to main menu
+        await this.showPostInstallOptions();
         
       } catch (error) {
         console.log(colors.red('Failed to set up Ziggy environment. Please set up PATH manually.'));
@@ -1806,6 +1807,23 @@ export PATH="${this.binDir}:$PATH"
       
       if (clack.isCancel(reinstall) || !reinstall) {
         clack.log.info('Installation skipped.');
+        
+        // Show post-install options even when skipping
+        const action = await clack.select({
+          message: 'What would you like to do next?',
+          options: [
+            { value: 'main-menu', label: 'Return to main menu' },
+            { value: 'quit', label: 'Quit' }
+          ],
+          initialValue: 'main-menu'
+        });
+
+        if (clack.isCancel(action) || action === 'quit') {
+          console.log(colors.green('👋 Goodbye!'));
+          process.exit(0);
+        }
+        
+        // If they chose main-menu, we return and let the main loop continue
         return;
       }
     }
@@ -1854,14 +1872,33 @@ export PATH="${this.binDir}:$PATH"
         await this.createSymlink(installPath, version);
         console.log(colors.green(`✓ Automatically activated Zig ${version} (first installation)`));
       } else {
-        console.log(colors.yellow(`\nTo use this version, run: ${colors.cyan('ziggy use')}`));
+        // Only show "ziggy use" message if there are multiple versions to choose from
+        const availableVersions = Object.keys(this.config.downloads).filter(v => {
+          const info = this.config.downloads[v];
+          return info?.status === 'completed';
+        });
+        
+        // Add system version to count if available
+        const totalVersions = availableVersions.length + (this.config.systemZig ? 1 : 0);
+        
+        if (totalVersions > 1) {
+          console.log(colors.yellow(`\nTo switch to this version, run: ${colors.cyan('ziggy use')}`));
+        } else {
+          console.log(colors.green(`✓ Zig ${version} is now your active version`));
+          // Auto-activate if it's the only ziggy-managed version
+          try {
+            await this.createSymlink(installPath, version);
+          } catch (error) {
+            console.log(colors.yellow(`\n⚠ Note: To use this version, run: ${colors.cyan('ziggy use')}`));
+          }
+        }
       }
       
-      // Show setup instructions
-      console.log(colors.yellow('\n📋 Setup Instructions:'));
-      console.log(colors.cyan('Add this to your shell profile (.bashrc, .zshrc, etc.):'));
-      console.log(colors.green(`source ${this.envPath}`));
-      console.log(colors.cyan(`\nThen restart your terminal or run: ${colors.green('source ~/.bashrc')}`));
+      // Show platform-specific setup instructions
+      this.showSetupInstructions();
+      
+      // Offer user choice to quit or return to main menu
+      await this.showPostInstallOptions();
       
     } catch (error) {
       // Mark as failed
@@ -1873,6 +1910,54 @@ export PATH="${this.binDir}:$PATH"
       throw error;
     } finally {
       currentDownload = null;
+    }
+  }
+
+  private async showPostInstallOptions(): Promise<void> {
+    const action = await clack.select({
+      message: 'What would you like to do next?',
+      options: [
+        { value: 'quit', label: 'Quit' },
+        { value: 'main-menu', label: 'Return to main menu' }
+      ],
+      initialValue: 'quit'
+    });
+
+    if (clack.isCancel(action) || action === 'quit') {
+      console.log(colors.green('👋 Goodbye!'));
+      process.exit(0);
+    }
+    
+    // If they chose main-menu, we just return and let the main loop continue
+  }
+
+  private showSetupInstructions(): void {
+    console.log(colors.yellow('\n📋 Setup Instructions:'));
+    
+    if (this.platform === 'windows') {
+      // Windows-specific instructions
+      console.log(colors.cyan('To start using Zig:'));
+      console.log(colors.green(`• PowerShell: Add to your profile: . "${this.envPath}"`));
+      console.log(colors.green(`• Command Prompt: Add ${this.binDir} to your PATH manually`));
+      console.log(colors.yellow('\nFor PowerShell, add this line to your $PROFILE file and restart your terminal.'));
+    } else if (this.platform === 'linux' || this.platform === 'macos') {
+      // Unix-like systems (Linux, macOS)
+      const ziggyDirVar = process.env.ZIGGY_DIR ? '$ZIGGY_DIR' : '$HOME/.ziggy';
+      console.log(colors.cyan('To start using Zig, add this to your shell profile and restart your terminal:'));
+      console.log(colors.green(`source ${ziggyDirVar}/env`));
+      console.log('');
+      console.log(colors.yellow('Or run this command now to use Zig in the current session:'));
+      console.log(colors.green(`source ${this.envPath}`));
+      
+      // Shell-specific file hints
+      const shellInfo = this.detectShell();
+      console.log(colors.gray(`\nShell profile location for ${shellInfo.shell}: ${shellInfo.profileFile}`));
+    } else {
+      // Unknown platform - fallback to manual PATH setup
+      console.log(colors.yellow('Unknown platform detected.'));
+      console.log(colors.cyan('To start using Zig, manually add this directory to your PATH:'));
+      console.log(colors.green(this.binDir));
+      console.log(colors.gray('\nConsult your system documentation for instructions on modifying PATH.'));
     }
   }
 
