@@ -1506,15 +1506,15 @@ export PATH="${this.binDir}:$PATH"
       { value: 'main-menu', label: 'Return to main menu' }
     ];
 
-    // Add automatic PowerShell setup option for Windows
-    if (this.platform === 'windows') {
+    // Add automatic PowerShell setup option for Windows only if ziggy/bin is not in PATH
+    if (this.platform === 'windows' && !this.platformDetector.isZiggyInPath(this.binDir)) {
       options.unshift({ value: 'setup-powershell', label: 'Add to PowerShell profile automatically' });
     }
 
     const action = await clack.select({
       message: 'What would you like to do next?',
       options,
-      initialValue: this.platform === 'windows' ? 'setup-powershell' : 'quit'
+      initialValue: this.platform === 'windows' && !this.platformDetector.isZiggyInPath(this.binDir) ? 'setup-powershell' : 'quit'
     });
 
     if (clack.isCancel(action) || action === 'quit') {

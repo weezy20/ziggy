@@ -607,7 +607,9 @@ export class ZigInstaller implements IZigInstaller {
         
         // NEVER SKIP signature verification - as per requirements
         log(colors.blue('Downloading and verifying signature...'));
-        const signatureUrl = `${url}.minisig`;
+        // Remove ?source=ziggy from tarball URL, add .minisig, then add ?source=ziggy back
+        const baseUrl = url.replace('?source=ziggy', '');
+        const signatureUrl = `${baseUrl}.minisig?source=ziggy`;
         const signatureBuffer = await this.downloadSignature(signatureUrl);
         
         if (!signatureBuffer) {
