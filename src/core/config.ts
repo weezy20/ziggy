@@ -3,11 +3,11 @@
  * Handles loading, saving, and validation of ziggy.toml configuration files
  */
 
-import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { parse, stringify } from 'smol-toml';
 import type { ZiggyConfig, DownloadStatus } from '../types';
 import type { IConfigManager, IFileSystemManager } from '../interfaces';
+import { CONFIG_VERSION } from '../constants';
 
 export class ConfigManager implements IConfigManager {
   private configPath: string;
@@ -26,6 +26,7 @@ export class ConfigManager implements IConfigManager {
    */
   public load(): ZiggyConfig {
     const defaultConfig: ZiggyConfig = {
+      configVersion: CONFIG_VERSION,
       downloads: {}
     };
 
@@ -46,6 +47,23 @@ export class ConfigManager implements IConfigManager {
       
       // Validate and transform the parsed TOML into our config structure
       const config = this.validateAndTransformConfig(parsed);
+      
+      // Check if config version is outdated
+      if (!config.configVersion || config.configVersion < CONFIG_VERSION) {
+        console.log('📁 Config version outdated. Rebuilding ziggy.toml...');
+        const rebuiltConfig = this.scanExistingInstallations(false); // Don't show "No config found" message
+        // Preserve current version setting if it exists
+        if (config.currentVersion) {
+          rebuiltConfig.currentVersion = config.currentVersion;
+        }
+        // Preserve system zig setting if it exists
+        if (config.systemZig) {
+          rebuiltConfig.systemZig = config.systemZig;
+        }
+        this.save(rebuiltConfig);
+        return rebuiltConfig;
+      }
+      
       return config;
     } catch (error) {
       console.warn('⚠ Warning: Could not parse ziggy.toml, attempting migration or using defaults');
@@ -89,15 +107,20 @@ export class ConfigManager implements IConfigManager {
   /**
    * Scan existing installations and build configuration
    */
-  public scanExistingInstallations(): ZiggyConfig {
-    const config: ZiggyConfig = { downloads: {} };
+  public scanExistingInstallations(showNoConfigMessage: boolean = true): ZiggyConfig {
+    const config: ZiggyConfig = { 
+      configVersion: CONFIG_VERSION,
+      downloads: {} 
+    };
     const versionsDir = join(this.ziggyDir, 'versions');
 
     if (!this.fileSystemManager.isDirectory(versionsDir)) {
       return config;
     }
 
-    console.log('📁 No ziggy.toml found. Scanning existing installations...');
+    if (showNoConfigMessage) {
+      console.log('📁 No ziggy.toml found. Scanning existing installations...');
+    }
 
     let versionDirs: string[] = [];
     try {
@@ -115,12 +138,39 @@ export class ConfigManager implements IConfigManager {
       for (const version of versionDirs) {
         const versionPath = join(versionsDir, version);
         const zigExecutable = process.platform === 'win32' ? 'zig.exe' : 'zig';
-        const zigBinary = join(versionPath, zigExecutable);
+        
+        // First, try to find zig executable directly in the version directory
+        let zigBinary = join(versionPath, zigExecutable);
+        let actualZigPath = versionPath;
+        
+        if (!this.fileSystemManager.fileExists(zigBinary)) {
+          // If not found directly, look in subdirectories (common after extraction)
+          try {
+            const subDirs = this.fileSystemManager.listDirectory(versionPath).filter(dir => {
+              const fullPath = join(versionPath, dir);
+              return this.fileSystemManager.isDirectory(fullPath);
+            });
+            
+            // Look for zig executable in subdirectories
+            for (const subDir of subDirs) {
+              const subDirPath = join(versionPath, subDir);
+              const potentialZigBinary = join(subDirPath, zigExecutable);
+              if (this.fileSystemManager.fileExists(potentialZigBinary)) {
+                zigBinary = potentialZigBinary;
+                actualZigPath = subDirPath;
+                break;
+              }
+            }
+          } catch (error) {
+            // Continue to next version if subdirectory listing fails
+            continue;
+          }
+        }
         
         if (this.fileSystemManager.fileExists(zigBinary)) {
           config.downloads[version] = {
             version: version,
-            path: versionPath,
+            path: actualZigPath,
             downloadedAt: new Date().toISOString(),
             status: 'completed'
           };
@@ -139,7 +189,15 @@ export class ConfigManager implements IConfigManager {
    * Validate and transform parsed TOML data into ZiggyConfig
    */
   private validateAndTransformConfig(parsed: any): ZiggyConfig {
-    const config: ZiggyConfig = { downloads: {} };
+    const config: ZiggyConfig = { 
+      downloads: {} 
+    };
+
+    // Handle configVersion - only set if it exists in the parsed data
+    if (typeof parsed.configVersion === 'number') {
+      config.configVersion = parsed.configVersion;
+    }
+    // Note: We don't set a default configVersion here so we can detect missing versions
 
     // Handle currentVersion
     if (typeof parsed.currentVersion === 'string') {
@@ -190,6 +248,9 @@ export class ConfigManager implements IConfigManager {
    */
   private transformConfigForToml(config: ZiggyConfig): any {
     const tomlData: any = {};
+
+    // Always include config version
+    tomlData.configVersion = config.configVersion || CONFIG_VERSION;
 
     if (config.currentVersion) {
       tomlData.currentVersion = config.currentVersion;
@@ -262,7 +323,10 @@ export class ConfigManager implements IConfigManager {
    */
   private migrateFromLegacyFormat(content: string): ZiggyConfig | null {
     try {
-      const config: ZiggyConfig = { downloads: {} };
+      const config: ZiggyConfig = { 
+        configVersion: CONFIG_VERSION,
+        downloads: {} 
+      };
       const lines = content.split('\n');
       let currentSection = '';
 

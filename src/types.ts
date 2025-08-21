@@ -48,6 +48,7 @@ export interface DownloadInfo {
 }
 
 export interface ZiggyConfig {
+  configVersion?: number;
   downloads: Record<string, DownloadInfo>;
   currentVersion?: string;
   systemZig?: {

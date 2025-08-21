@@ -2,6 +2,9 @@
  * Constants for Ziggy configuration and security verification
  */
 
+// Configuration versioning
+export const CONFIG_VERSION = 1;
+
 // Zig download and verification URLs
 export const ZIG_DOWNLOAD_BASE_URL = 'https://ziglang.org/download';
 export const ZIG_DOWNLOAD_INDEX_URL = 'https://ziglang.org/download/index.json';

@@ -19,7 +19,8 @@ Or you can use it without installing anything using `bunx`:
 bunx @weezy20/ziggy -h
 ```
 
-If you want a binary executable you can build it locally:
+If you want a binary executable you can build it locally 
+(Note: the master branch is the development branch and there might be breaking changes):
 
 ```sh
 bun install && bun build;

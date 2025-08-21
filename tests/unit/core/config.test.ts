@@ -95,6 +95,7 @@ describe('ConfigManager', () => {
       const config = configManager.load();
       
       expect(config).toEqual({
+        configVersion: 1,
         downloads: {}
       });
     });
@@ -189,6 +190,66 @@ status = "invalid_status"
 
       expect(config.downloads['0.11.0']?.status).toBe('completed');
     });
+
+    it('should rebuild config when configVersion is outdated', () => {
+      // Set up an old config file without configVersion
+      const oldTomlContent = `# Ziggy Configuration
+
+currentVersion = "0.11.0"
+
+[downloads."0.11.0"]
+path = "/home/user/.ziggy/versions/0.11.0"
+downloadedAt = "2024-01-15T10:30:00Z"
+status = "completed"
+`;
+
+      mockFileSystem.setFile(configPath, oldTomlContent);
+      
+      // Set up versions directory with existing installations
+      const versionsDir = join(ziggyDir, 'versions');
+      const zigExecutable = process.platform === 'win32' ? 'zig.exe' : 'zig';
+      
+      mockFileSystem.setDirectory(versionsDir);
+      mockFileSystem.setDirectory(join(versionsDir, '0.11.0'));
+      mockFileSystem.setFile(join(versionsDir, '0.11.0', zigExecutable), '');
+
+      const config = configManager.load();
+
+      // Should have rebuilt with new version
+      expect(config.configVersion).toBe(1);
+      expect(config.currentVersion).toBe('0.11.0'); // Should preserve currentVersion
+      expect(config.downloads['0.11.0']).toBeDefined();
+    });
+
+    it('should rebuild config when configVersion is lower than current', () => {
+      // Set up config with old version number
+      const oldTomlContent = `# Ziggy Configuration
+configVersion = 0
+
+currentVersion = "0.11.0"
+
+[downloads."0.11.0"]
+path = "/home/user/.ziggy/versions/0.11.0"
+downloadedAt = "2024-01-15T10:30:00Z"
+status = "completed"
+`;
+
+      mockFileSystem.setFile(configPath, oldTomlContent);
+      
+      // Set up versions directory
+      const versionsDir = join(ziggyDir, 'versions');
+      const zigExecutable = process.platform === 'win32' ? 'zig.exe' : 'zig';
+      
+      mockFileSystem.setDirectory(versionsDir);
+      mockFileSystem.setDirectory(join(versionsDir, '0.11.0'));
+      mockFileSystem.setFile(join(versionsDir, '0.11.0', zigExecutable), '');
+
+      const config = configManager.load();
+
+      // Should have rebuilt with new version
+      expect(config.configVersion).toBe(1);
+      expect(config.currentVersion).toBe('0.11.0'); // Should preserve currentVersion
+    });
   });
 
   describe('save()', () => {
@@ -258,6 +319,7 @@ status = "invalid_status"
       const config = configManager.scanExistingInstallations();
       
       expect(config).toEqual({
+        configVersion: 1,
         downloads: {}
       });
     });
@@ -332,6 +394,7 @@ path =
       const config = configManager.load();
 
       expect(config).toEqual({
+        configVersion: 1,
         downloads: {}
       });
     });
