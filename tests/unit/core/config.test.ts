@@ -157,13 +157,15 @@ status = "completed"
 
     it('should scan existing installations when no config exists', () => {
       const versionsDir = join(ziggyDir, 'versions');
+      const zigExecutable = process.platform === 'win32' ? 'zig.exe' : 'zig';
+      
       mockFileSystem.setDirectory(versionsDir);
       mockFileSystem.setDirectory(join(versionsDir, '0.11.0'));
       mockFileSystem.setDirectory(join(versionsDir, '0.12.0'));
       mockFileSystem.setDirectory(join(versionsDir, 'master'));
-      mockFileSystem.setFile(join(versionsDir, '0.11.0', 'zig'), '');
-      mockFileSystem.setFile(join(versionsDir, '0.12.0', 'zig'), '');
-      mockFileSystem.setFile(join(versionsDir, 'master', 'zig'), '');
+      mockFileSystem.setFile(join(versionsDir, '0.11.0', zigExecutable), '');
+      mockFileSystem.setFile(join(versionsDir, '0.12.0', zigExecutable), '');
+      mockFileSystem.setFile(join(versionsDir, 'master', zigExecutable), '');
 
       const config = configManager.load();
 
@@ -262,11 +264,13 @@ status = "invalid_status"
 
     it('should scan and find existing installations', () => {
       const versionsDir = join(ziggyDir, 'versions');
+      const zigExecutable = process.platform === 'win32' ? 'zig.exe' : 'zig';
+      
       mockFileSystem.setDirectory(versionsDir);
       mockFileSystem.setDirectory(join(versionsDir, '0.11.0'));
       mockFileSystem.setDirectory(join(versionsDir, '0.12.0'));
-      mockFileSystem.setFile(join(versionsDir, '0.11.0', 'zig'), '');
-      mockFileSystem.setFile(join(versionsDir, '0.12.0', 'zig'), '');
+      mockFileSystem.setFile(join(versionsDir, '0.11.0', zigExecutable), '');
+      mockFileSystem.setFile(join(versionsDir, '0.12.0', zigExecutable), '');
 
       const config = configManager.scanExistingInstallations();
 

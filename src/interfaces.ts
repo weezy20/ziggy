@@ -27,6 +27,7 @@ export interface IVersionManager {
   validateVersion(version: string): Promise<boolean>;
   getCurrentVersion(): string | undefined;
   setCurrentVersion(version: string): void;
+  clearCurrentVersion(): void;
 }
 
 // Platform detection interface

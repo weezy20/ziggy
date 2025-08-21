@@ -14,6 +14,7 @@ import { PlatformDetector } from './utils/platform';
 import { FileSystemManager } from './utils/filesystem';
 import { ArchiveExtractor } from './utils/archive';
 import { ConfigManager } from './core/config';
+import { VersionManager } from './core/version';
 import type { ZigDownloadIndex, ShellInfo, DownloadStatus, ZigVersions, ZiggyConfig } from './types';
 export const log = console.log;
 
@@ -72,6 +73,7 @@ export class ZigInstaller {
   private fileSystemManager: FileSystemManager;
   private archiveExtractor: ArchiveExtractor;
   private configManager: ConfigManager;
+  private versionManager: VersionManager;
   private arch: string;
   public platform: string;
   private os: string;
@@ -106,6 +108,10 @@ export class ZigInstaller {
     // Initialize ConfigManager
     this.configManager = new ConfigManager(this.ziggyDir, this.fileSystemManager);
     this.config = this.configManager.load();
+    
+    // Initialize VersionManager
+    this.versionManager = new VersionManager(this.configManager, this.arch, this.platform);
+    
     this.detectSystemZig();
     this.cleanupIncompleteDownloads();
   }
@@ -189,8 +195,7 @@ export class ZigInstaller {
       // Create symlink using FileSystemManager
       this.fileSystemManager.createSymlink(symlinkTarget, zigBinary, this.platform);
       
-      this.config.currentVersion = version;
-      this.configManager.save(this.config);
+      this.versionManager.setCurrentVersion(version);
       log(colors.green(`✓ Symlinked ${version} to ${zigBinary}`));
     } catch (error) {
       console.error(colors.red('Error creating symlink:'), error);
@@ -447,32 +452,11 @@ export PATH="${this.binDir}:$PATH"
 
 
   public async getAvailableVersions(): Promise<string[]> {
-    try {
-      const response = await fetch('https://ziglang.org/download/index.json');
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json() as ZigVersions;
-      const versions = Object.keys(data);
-      return versions.filter(v => v !== 'master');
-    } catch (error) {
-      console.error(colors.red('Failed to fetch available versions:'), error);
-      return ['0.11.0', '0.10.1', '0.10.0']; // Fallback versions
-    }
+    return this.versionManager.getAvailableVersions();
   }
 
   public async validateVersion(version: string): Promise<boolean> {
-    try {
-      const response = await fetch(`https://ziglang.org/download/${version}/index.json`);
-      if (!response.ok) {
-        return false;
-      }
-      const data = await response.json() as ZigDownloadIndex;
-      const archKey = `${this.arch}-${this.platform}`;
-      return !!data[archKey];
-    } catch (_error) {
-      return false;
-    }
+    return this.versionManager.validateVersion(version);
   }
 
   private async downloadZig(version: string, installPath: string): Promise<void> {
@@ -699,17 +683,7 @@ export PATH="${this.binDir}:$PATH"
   }
 
   private async getLatestStableVersion(): Promise<string> {
-    try {
-      const response = await fetch('https://ziglang.org/download/index.json');
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json() as ZigVersions;
-      const versions = Object.keys(data).filter(v => v !== 'master');
-      return versions[0] || '0.11.0'; // Assuming the first one is the latest stable
-    } catch (_error) {
-      return '0.11.0'; // Fallback
-    }
+    return this.versionManager.getLatestStableVersion();
   }
 
   private async validateInstallPath(userPath: string): Promise<string> {
@@ -804,13 +778,14 @@ export PATH="${this.binDir}:$PATH"
     }
 
     // Show current active version
-    if (this.config.currentVersion) {
-      if (this.config.currentVersion === 'system' && this.config.systemZig) {
+    const currentVersion = this.versionManager.getCurrentVersion();
+    if (currentVersion) {
+      if (currentVersion === 'system' && this.config.systemZig) {
         log(colors.yellow(`Current active Zig: ${colors.green(this.config.systemZig.version)} ${colors.gray('(system installation)')}`));
       } else {
-        const currentInfo = this.config.downloads[this.config.currentVersion];
+        const currentInfo = this.config.downloads[currentVersion];
         if (currentInfo) {
-          log(colors.yellow(`Current active Zig: ${colors.green(this.config.currentVersion)} ${colors.gray('(managed by ziggy)')}`));
+          log(colors.yellow(`Current active Zig: ${colors.green(currentVersion)} ${colors.gray('(managed by ziggy)')}`));
         }
       }
     } else {
@@ -851,7 +826,7 @@ export PATH="${this.binDir}:$PATH"
 
         // Only show completed versions, with status indicators for others
         if (info.status === 'completed') {
-          const isCurrent = this.config.currentVersion === version ? colors.green(' ← current') : '';
+          const isCurrent = this.versionManager.getCurrentVersion() === version ? colors.green(' ← current') : '';
           log(colors.cyan(`• ${version}${isCurrent}`));
         } else if (info.status === 'downloading') {
           log(colors.yellow(`• ${version} [downloading...]`));
@@ -971,7 +946,8 @@ export PATH="${this.binDir}:$PATH"
     }
 
     // Check for active Zig installations
-    const hasActiveZig = this.config.currentVersion || this.config.systemZig;
+    const currentVersion = this.versionManager.getCurrentVersion();
+    const hasActiveZig = currentVersion || this.config.systemZig;
 
     const templateChoices = [
       { value: 'back', label: '← Back to main menu' },
@@ -980,9 +956,9 @@ export PATH="${this.binDir}:$PATH"
 
     // Add zig init option if Zig is available
     if (hasActiveZig) {
-      const zigVersion = this.config.currentVersion === 'system' && this.config.systemZig
+      const zigVersion = currentVersion === 'system' && this.config.systemZig
         ? this.config.systemZig.version
-        : this.config.currentVersion;
+        : currentVersion;
 
       templateChoices.push({
         value: 'zig-init',
@@ -1048,9 +1024,10 @@ export PATH="${this.binDir}:$PATH"
 
         // Get the active zig command
         let zigCommand = 'zig';
-        if (this.config.currentVersion === 'system' && this.config.systemZig) {
+        const currentVersion = this.versionManager.getCurrentVersion();
+        if (currentVersion === 'system' && this.config.systemZig) {
           zigCommand = this.config.systemZig.path;
-        } else if (this.config.currentVersion) {
+        } else if (currentVersion) {
           // Use the symlinked zig from ziggy
           zigCommand = join(this.binDir, 'zig');
         }
@@ -1159,7 +1136,7 @@ export PATH="${this.binDir}:$PATH"
       if (this.config.systemZig) {
         this.createSymlink(this.config.systemZig.path, 'system');
         // Just track that we're using system version, don't add to downloads
-        this.config.currentVersion = 'system';
+        this.versionManager.setCurrentVersion('system');
         clack.log.success(`Now using system Zig ${this.config.systemZig.version}`);
       }
     } else {
@@ -1167,7 +1144,7 @@ export PATH="${this.binDir}:$PATH"
       const info = this.config.downloads[selectedVersion];
       if (info) {
         this.createSymlink(info.path, selectedVersion);
-        this.config.currentVersion = selectedVersion;
+        this.versionManager.setCurrentVersion(selectedVersion);
         clack.log.success(`Now using Zig ${selectedVersion}`);
       }
     }
@@ -1180,7 +1157,7 @@ export PATH="${this.binDir}:$PATH"
 
     // Add system zig if available (show first)
     if (this.config.systemZig) {
-      const isCurrent = this.config.currentVersion === 'system' ? ' ← current' : '';
+      const isCurrent = this.versionManager.getCurrentVersion() === 'system' ? ' ← current' : '';
       choices.push(`System: ${this.config.systemZig.version} at ${this.config.systemZig.path}${isCurrent}`);
     }
 
@@ -1193,7 +1170,7 @@ export PATH="${this.binDir}:$PATH"
     for (const version of availableVersions) {
       const info = this.config.downloads[version];
       if (info?.status === 'completed') {
-        const isCurrent = this.config.currentVersion === version ? ' ← current' : '';
+        const isCurrent = this.versionManager.getCurrentVersion() === version ? ' ← current' : '';
         choices.push(`Ziggy: ${version} at ${info.path}${isCurrent}`);
       }
     }
@@ -1222,7 +1199,7 @@ export PATH="${this.binDir}:$PATH"
     // Show current versions
     const versionsList = downloadedVersions
       .map(v => {
-        const isCurrent = this.config.currentVersion === v ? ' ← current' : '';
+        const isCurrent = this.versionManager.getCurrentVersion() === v ? ' ← current' : '';
         return `• ${v}${isCurrent}`;
       })
       .join('\n');
@@ -1236,10 +1213,11 @@ export PATH="${this.binDir}:$PATH"
     ];
 
     // Add option to keep current version if there is one
-    if (this.config.currentVersion && this.config.currentVersion !== 'system') {
+    const currentVersion = this.versionManager.getCurrentVersion();
+    if (currentVersion && currentVersion !== 'system') {
       choices.push({
         value: 'clean-except-current',
-        label: `Clean all except current active version (${this.config.currentVersion})`
+        label: `Clean all except current active version (${currentVersion})`
       });
     }
 
@@ -1307,7 +1285,11 @@ export PATH="${this.binDir}:$PATH"
 
     // Clear downloads config
     this.config.downloads = {};
-    this.config.currentVersion = this.config.systemZig ? 'system' : undefined;
+    if (this.config.systemZig) {
+      this.versionManager.setCurrentVersion('system');
+    } else {
+      this.versionManager.clearCurrentVersion();
+    }
     this.configManager.save(this.config);
 
     // Remove symlink if it exists
@@ -1328,7 +1310,7 @@ export PATH="${this.binDir}:$PATH"
   }
 
   public async cleanExceptCurrent(): Promise<void> {
-    const currentVersion = this.config.currentVersion;
+    const currentVersion = this.versionManager.getCurrentVersion();
     if (!currentVersion || currentVersion === 'system') {
       clack.log.error('No current version set or using system version');
       return;
@@ -1386,14 +1368,14 @@ export PATH="${this.binDir}:$PATH"
       { value: 'back', label: '← Back to cleanup menu' },
       ...downloadedVersions.map(v => ({
         value: v,
-        label: `${v}${this.config.currentVersion === v ? ' (current)' : ''}`
+        label: `${v}${this.versionManager.getCurrentVersion() === v ? ' (current)' : ''}`
       }))
     ];
 
     const versionToKeep = await clack.select({
       message: 'Select which version to keep (all others will be deleted):',
       options: versionChoices,
-      initialValue: this.config.currentVersion || downloadedVersions[0]
+      initialValue: this.versionManager.getCurrentVersion() || downloadedVersions[0]
     });
 
     if (clack.isCancel(versionToKeep) || versionToKeep === 'back') {
@@ -1430,7 +1412,7 @@ export PATH="${this.binDir}:$PATH"
     }
 
     // Set the kept version as current
-    this.config.currentVersion = versionToKeep;
+    this.versionManager.setCurrentVersion(versionToKeep);
     this.createSymlink(this.config.downloads[versionToKeep]!.path, versionToKeep);
     this.configManager.save(this.config);
 
@@ -1518,7 +1500,7 @@ export PATH="${this.binDir}:$PATH"
       }
 
       // Auto-activate this version if no current version is set
-      if (!this.config.currentVersion) {
+      if (!this.versionManager.getCurrentVersion()) {
         this.createSymlink(installPath, version);
         log(colors.green(`✓ Automatically activated Zig ${version} (first installation)`));
       } else {

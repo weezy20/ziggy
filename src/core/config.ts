@@ -159,7 +159,7 @@ export class ConfigManager implements IConfigManager {
               path: data.path,
               downloadedAt: typeof data.downloadedAt === 'string' ? data.downloadedAt : new Date().toISOString(),
               status: this.validateDownloadStatus(data.status),
-              isSystemWide: typeof data.isSystemWide === 'boolean' ? data.isSystemWide : undefined,
+              isSystemWide: this.parseBoolean(data.isSystemWide),
               // Security verification fields
               checksum: typeof data.checksum === 'string' ? data.checksum : undefined,
               checksumVerified: typeof data.checksumVerified === 'boolean' ? data.checksumVerified : undefined,
@@ -225,6 +225,21 @@ export class ConfigManager implements IConfigManager {
   }
 
   /**
+   * Parse boolean values from various formats (for legacy compatibility)
+   */
+  private parseBoolean(value: any): boolean | undefined {
+    if (typeof value === 'boolean') {
+      return value;
+    }
+    if (typeof value === 'string') {
+      const lower = value.toLowerCase();
+      if (lower === 'true' || lower === '1') return true;
+      if (lower === 'false' || lower === '0') return false;
+    }
+    return undefined;
+  }
+
+  /**
    * Migrate configuration from legacy manual parsing format
    */
   private migrateFromLegacyFormat(content: string): ZiggyConfig | null {
@@ -276,7 +291,7 @@ export class ConfigManager implements IConfigManager {
           if (key === 'path') config.downloads[version]!.path = value;
           if (key === 'downloadedAt') config.downloads[version]!.downloadedAt = value;
           if (key === 'status') config.downloads[version]!.status = this.validateDownloadStatus(value);
-          if (key === 'isSystemWide') config.downloads[version]!.isSystemWide = value === 'true';
+          if (key === 'isSystemWide') config.downloads[version]!.isSystemWide = this.parseBoolean(value);
           if (key === 'checksum') config.downloads[version]!.checksum = value;
           if (key === 'checksumVerified') config.downloads[version]!.checksumVerified = value === 'true';
           if (key === 'minisignVerified') config.downloads[version]!.minisignVerified = value === 'true';
