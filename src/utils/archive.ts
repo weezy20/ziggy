@@ -75,7 +75,7 @@ export class ArchiveExtractor implements IArchiveExtractor {
                     }
                 });
 
-                inputStream.on('error', (error) => {
+                inputStream.on('error', (error: Error) => {
                     this.progressReporter?.reportError(error);
                     reject(error);
                 });

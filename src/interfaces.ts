@@ -3,7 +3,7 @@
  * These interfaces define the contracts between different layers and modules
  */
 
-import type { ZiggyConfig, DownloadInfo, ShellInfo, DownloadProgress } from './types.js';
+import type { ZiggyConfig, ShellInfo, DownloadProgress } from './types.js';
 
 // Core installer interface
 export interface IZigInstaller {

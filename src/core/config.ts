@@ -6,7 +6,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { parse, stringify } from 'smol-toml';
-import type { ZiggyConfig, DownloadInfo, DownloadStatus } from '../types';
+import type { ZiggyConfig, DownloadStatus } from '../types';
 import type { IConfigManager, IFileSystemManager } from '../interfaces';
 
 export class ConfigManager implements IConfigManager {

@@ -9,7 +9,7 @@
  */
 
 import type { IVersionManager, IConfigManager } from '../interfaces.js';
-import type { ZigVersions, ZigDownloadIndex, ZiggyConfig } from '../types.js';
+import type { ZigVersions, ZigDownloadIndex } from '../types.js';
 
 export class VersionManager implements IVersionManager {
   private configManager: IConfigManager;

@@ -17,7 +17,7 @@ import { SpinnerProgressReporter } from './utils/progress';
 import { ConfigManager } from './core/config';
 import { VersionManager } from './core/version';
 import { ZigInstaller as CoreZigInstaller } from './core/installer';
-import type { ZigDownloadIndex, ShellInfo, DownloadStatus, ZigVersions, ZiggyConfig } from './types';
+import type { ZigDownloadIndex, DownloadStatus, ZiggyConfig } from './types';
 export const log = console.log;
 
 // Handle Ctrl+C gracefully
