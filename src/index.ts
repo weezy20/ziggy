@@ -15,6 +15,7 @@ import { FileSystemManager } from './utils/filesystem';
 import { ArchiveExtractor } from './utils/archive';
 import { ConfigManager } from './core/config';
 import { VersionManager } from './core/version';
+import { ZigInstaller as CoreZigInstaller } from './core/installer';
 import type { ZigDownloadIndex, ShellInfo, DownloadStatus, ZigVersions, ZiggyConfig } from './types';
 export const log = console.log;
 
@@ -74,6 +75,7 @@ export class ZigInstaller {
   private archiveExtractor: ArchiveExtractor;
   private configManager: ConfigManager;
   private versionManager: VersionManager;
+  private coreInstaller: CoreZigInstaller;
   private arch: string;
   public platform: string;
   private os: string;
@@ -111,6 +113,16 @@ export class ZigInstaller {
     
     // Initialize VersionManager
     this.versionManager = new VersionManager(this.configManager, this.arch, this.platform);
+    
+    // Initialize Core Installer with dependency injection
+    this.coreInstaller = new CoreZigInstaller(
+      this.configManager,
+      this.versionManager,
+      this.platformDetector,
+      this.fileSystemManager,
+      this.archiveExtractor,
+      this.ziggyDir
+    );
     
     this.detectSystemZig();
     this.cleanupIncompleteDownloads();
@@ -416,31 +428,14 @@ export PATH="${this.binDir}:$PATH"
   }
 
   private saveConfig(): void {
-    const tomlContent = this.generateToml(this.config);
-    this.fileSystemManager.writeFile(this.configPath, tomlContent);
+    // Legacy method - now handled by ConfigManager
+    this.configManager.save(this.config);
   }
 
   private generateToml(config: ZiggyConfig): string {
-    let content = '# Ziggy Configuration\n\n';
-
-    if (config.currentVersion) {
-      content += `currentVersion = "${config.currentVersion}"\n\n`;
-    }
-
-    for (const [version, info] of Object.entries(config.downloads)) {
-      // Quote version if it contains dots or special characters
-      const quotedVersion = version.includes('.') || version.includes('-') ? `"${version}"` : version;
-      content += `[downloads.${quotedVersion}]\n`;
-      content += `path = "${info.path}"\n`;
-      content += `downloadedAt = "${info.downloadedAt}"\n`;
-      content += `status = "${info.status}"\n`;
-      if (info.isSystemWide) {
-        content += `isSystemWide = true\n`;
-      }
-      content += '\n';
-    }
-
-    return content;
+    // Legacy method - now handled by ConfigManager  
+    // This method is no longer used but kept for compatibility
+    return '';
   }
 
 
@@ -1131,25 +1126,11 @@ export PATH="${this.binDir}:$PATH"
 
 
   public useVersion(selectedVersion: string): void {
-    if (selectedVersion === 'system') {
-      // Use system zig
-      if (this.config.systemZig) {
-        this.createSymlink(this.config.systemZig.path, 'system');
-        // Just track that we're using system version, don't add to downloads
-        this.versionManager.setCurrentVersion('system');
-        clack.log.success(`Now using system Zig ${this.config.systemZig.version}`);
-      }
-    } else {
-      // Use ziggy managed version
-      const info = this.config.downloads[selectedVersion];
-      if (info) {
-        this.createSymlink(info.path, selectedVersion);
-        this.versionManager.setCurrentVersion(selectedVersion);
-        clack.log.success(`Now using Zig ${selectedVersion}`);
-      }
-    }
-
-    this.configManager.save(this.config);
+    // Delegate to core installer
+    this.coreInstaller.useVersion(selectedVersion);
+    
+    // Reload config after version change
+    this.config = this.configManager.load();
   }
 
   public async listVersionsTUI(): Promise<void> {
@@ -1424,9 +1405,7 @@ export PATH="${this.binDir}:$PATH"
   }
 
   public async downloadWithVersion(version: string): Promise<void> {
-    const installPath = join(this.ziggyDir, 'versions', version);
-
-    // Check if already installed
+    // Check if already installed first with user confirmation
     const existing = this.config.downloads[version];
     if (existing && existing.status === 'completed') {
       clack.log.warn(`Zig ${version} is already installed at ${existing.path}`);
@@ -1457,51 +1436,27 @@ export PATH="${this.binDir}:$PATH"
         // If they chose main-menu, we return and let the main loop continue
         return;
       }
+      
+      // If reinstalling, remove the existing version first
+      await this.coreInstaller.removeVersion(version);
     }
 
-    log(colors.green(`\n🚀 Installing Zig ${version}...`));
-
-    // Update config to show download in progress
-    this.config.downloads[version] = {
-      version: version,
-      path: installPath,
-      downloadedAt: new Date().toISOString(),
-      status: 'downloading'
-    };
-    this.configManager.save(this.config);
-
     try {
-      // Setup cleanup for graceful shutdown
-      currentDownload = {
-        cleanup: () => {
-          log(colors.yellow(`\n🧹 Cleaning up incomplete download of Zig ${version}...`));
-          // Remove the incomplete download entry entirely
-          if (this.config.downloads[version]) {
-            delete this.config.downloads[version];
-            this.configManager.save(this.config);
-          }
-          // Remove any partial files
-          this.fileSystemManager.safeRemove(installPath);
-          log(colors.yellow('✓ Cleanup completed'));
-        }
-      };
-
-      await this.downloadZig(version, installPath);
-
-      // Mark as completed
-      this.config.downloads[version]!.status = 'completed';
-      this.configManager.save(this.config);
-
-      log(colors.green(`\n✅ Zig ${version} successfully installed!`));
-
+      // For now, connect to the core installer's built-in interrupt handling
+      // The core installer manages its own currentDownload state internally
+      await this.coreInstaller.downloadVersion(version);
+      
+      // Reload config after installation
+      this.config = this.configManager.load();
+      
       // Create env file if it doesn't exist
       if (!this.fileSystemManager.fileExists(this.envPath)) {
         this.createEnvFile();
       }
 
-      // Auto-activate this version if no current version is set
-      if (!this.versionManager.getCurrentVersion()) {
-        this.createSymlink(installPath, version);
+      // Show version switching guidance
+      const currentVersion = this.versionManager.getCurrentVersion();
+      if (!currentVersion) {
         log(colors.green(`✓ Automatically activated Zig ${version} (first installation)`));
       } else {
         // Only show "ziggy use" message if there are multiple versions to choose from
@@ -1517,12 +1472,6 @@ export PATH="${this.binDir}:$PATH"
           log(colors.yellow(`\nTo switch to this version, run: ${colors.cyan(`ziggy use ${version}`)} or select ${colors.cyan('Switch active Zig version')} from the main menu.`));
         } else {
           log(colors.green(`✓ Zig ${version} is now your active version`));
-          // Auto-activate if it's the only ziggy-managed version
-          try {
-            this.createSymlink(installPath, version);
-          } catch (_error) {
-            log(colors.yellow(`\n⚠ Note: To use this version, run: ${colors.cyan('ziggy use')}`));
-          }
         }
       }
 
@@ -1533,14 +1482,10 @@ export PATH="${this.binDir}:$PATH"
       await this.showPostInstallOptions();
 
     } catch (error) {
-      // Mark as failed
-      this.config.downloads[version]!.status = 'failed';
-      this.configManager.save(this.config);
-
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(colors.red('Download failed:'), errorMessage);
+      log(colors.red(`Failed to install Zig ${version}: ${error}`));
       throw error;
     } finally {
+      // Clear current download state
       currentDownload = null;
     }
   }

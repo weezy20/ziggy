@@ -12,6 +12,7 @@ export interface IZigInstaller {
   getInstalledVersions(): string[];
   validateVersion(version: string): Promise<boolean>;
   cleanup(): Promise<void>;
+  getCurrentDownload(): { cleanup?: () => void } | null;
 }
 
 // Configuration management interface
@@ -36,7 +37,13 @@ export interface IPlatformDetector {
   getPlatform(): string;
   getOS(): string;
   getShellInfo(): ShellInfo;
-  isZiggyConfigured(): boolean;
+  isZiggyConfigured(binDir: string): boolean;
+  hasEnvFileConfigured(envPath: string): boolean;
+  getZiggyDir(): string;
+  expandHomePath(path: string): string;
+  getShellSourceLine(envPath: string): string;
+  getPathExportLine(shell: string, zigBinPath: string): string;
+  getArchiveExtension(): string;
 }
 
 // File system operations interface
