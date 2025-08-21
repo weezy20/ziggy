@@ -34,19 +34,34 @@ export interface ZigVersions {
   [key: string]: ZigVersion;
 }
 
+export interface DownloadInfo {
+  version: string;
+  path: string;
+  status: DownloadStatus;
+  downloadedAt: string;
+  isSystemWide?: boolean;
+  // Security verification data
+  checksum?: string;
+  checksumVerified?: boolean;
+  minisignVerified?: boolean;
+  downloadUrl?: string;
+}
+
 export interface ZiggyConfig {
-  downloads: Record<string, {
-    version: string;
-    path: string;
-    status: DownloadStatus;
-    downloadedAt: string;
-    isSystemWide?: boolean;
-  }>;
+  downloads: Record<string, DownloadInfo>;
   currentVersion?: string;
   systemZig?: {
     path: string;
     version: string;
   };
+}
+
+export interface DownloadProgress {
+  version: string;
+  bytesDownloaded: number;
+  totalBytes: number;
+  percentage: number;
+  status: 'downloading' | 'extracting' | 'completed' | 'failed';
 }
 
 export interface ZigVersionInfo {

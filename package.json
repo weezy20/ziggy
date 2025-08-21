@@ -30,7 +30,11 @@
   "type": "module",
   "scripts": {
     "start": "bun run src/index.ts",
-    "build": "bun build src/index.ts --compile --outfile ziggy"
+    "build": "bun build src/index.ts --compile --outfile ziggy",
+    "test": "bun test",
+    "test:unit": "bun test tests/unit/",
+    "test:integration": "bun test tests/integration/",
+    "test:watch": "bun test --watch"
   },
   "dependencies": {
     "@clack/prompts": "^0.11.0",
@@ -38,6 +42,7 @@
     "@napi-rs/lzma": "^1.4.0",
     "@types/which": "^3.0.4",
     "commander": "^14.0.0",
+    "smol-toml": "^1.4.2",
     "tar": "^7.4.3",
     "which": "^5.0.0",
     "zip-lib": "1.1.2"

@@ -2,16 +2,18 @@
 
 import { ZIG_ASCII_ART } from './ascii-art';
 import { join, resolve, dirname } from 'path';
-import { existsSync, mkdirSync, createWriteStream, createReadStream, statSync, readdirSync, rmSync, appendFileSync, readFileSync, writeFileSync, copyFileSync } from 'fs';
-import * as tar from 'tar';
-import { xz } from '@napi-rs/lzma';
-import { extract as extractZip } from 'zip-lib';
+// File system operations are now handled by FileSystemManager
+
 import * as clack from '@clack/prompts';
 import which from 'which';
 import { cloneTemplateRepository } from './utils/template';
 import { colors } from './utils/colors';
 import { setupCLI } from './cli';
 import { useCommand } from './commands/use';
+import { PlatformDetector } from './utils/platform';
+import { FileSystemManager } from './utils/filesystem';
+import { ArchiveExtractor } from './utils/archive';
+import { ConfigManager } from './core/config';
 import type { ZigDownloadIndex, ShellInfo, DownloadStatus, ZigVersions, ZiggyConfig } from './types';
 export const log = console.log;
 
@@ -66,6 +68,10 @@ function formatBytes(bytes: number): string {
 
 
 export class ZigInstaller {
+  private platformDetector: PlatformDetector;
+  private fileSystemManager: FileSystemManager;
+  private archiveExtractor: ArchiveExtractor;
+  private configManager: ConfigManager;
   private arch: string;
   public platform: string;
   private os: string;
@@ -73,15 +79,17 @@ export class ZigInstaller {
   private ziggyDir: string;
   private binDir: string;
   public envPath: string;
-  private configPath: string;
   public config: ZiggyConfig;
 
   constructor() {
-    this.arch = this.detectArch();
-    this.platform = this.detectPlatform();
-    this.os = this.detectOS();
+    this.platformDetector = new PlatformDetector();
+    this.fileSystemManager = new FileSystemManager();
+    this.archiveExtractor = new ArchiveExtractor(this.fileSystemManager);
+    this.arch = this.platformDetector.getArch();
+    this.platform = this.platformDetector.getPlatform();
+    this.os = this.platformDetector.getOS();
     this.cwd = process.cwd();
-    this.ziggyDir = this.getZiggyDir();
+    this.ziggyDir = this.platformDetector.getZiggyDir();
     this.binDir = join(this.ziggyDir, 'bin');
 
     // Platform-specific env file names
@@ -91,17 +99,13 @@ export class ZigInstaller {
       this.envPath = join(this.ziggyDir, 'env'); // Bash/Zsh script
     }
 
-    this.configPath = join(this.ziggyDir, 'ziggy.toml');
-
     // Ensure directories exist
-    if (!existsSync(this.ziggyDir)) {
-      mkdirSync(this.ziggyDir, { recursive: true });
-    }
-    if (!existsSync(this.binDir)) {
-      mkdirSync(this.binDir, { recursive: true });
-    }
+    this.fileSystemManager.ensureDirectory(this.ziggyDir);
+    this.fileSystemManager.ensureDirectory(this.binDir);
 
-    this.config = this.loadConfig();
+    // Initialize ConfigManager
+    this.configManager = new ConfigManager(this.ziggyDir, this.fileSystemManager);
+    this.config = this.configManager.load();
     this.detectSystemZig();
     this.cleanupIncompleteDownloads();
   }
@@ -144,17 +148,13 @@ export class ZigInstaller {
           delete this.config.downloads[version];
 
           // Remove any partial files
-          if (existsSync(info.path)) {
-            try {
-              rmSync(info.path, { recursive: true, force: true });
-            } catch (_error) {
-              // Ignore cleanup errors for partial files
-            }
+          if (this.fileSystemManager.fileExists(info.path)) {
+            this.fileSystemManager.safeRemove(info.path);
           }
         }
       }
 
-      this.saveConfig();
+      this.configManager.save(this.config);
       log(colors.green(`✓ Cleaned up ${versionsToCleanup.length} incomplete download(s)`));
     }
   }
@@ -162,11 +162,6 @@ export class ZigInstaller {
   private createSymlink(targetPath: string, version: string) {
     const zigBinaryName = this.platform === 'windows' ? 'zig.exe' : 'zig';
     const zigBinary = join(this.binDir, zigBinaryName);
-
-    // Remove existing symlink if it exists
-    if (existsSync(zigBinary)) {
-      rmSync(zigBinary);
-    }
 
     // Create new symlink
     try {
@@ -180,7 +175,7 @@ export class ZigInstaller {
         // First check if zig binary is directly in the path
         const zigBinaryName = this.platform === 'windows' ? 'zig.exe' : 'zig';
         const directZigPath = join(targetPath, zigBinaryName);
-        if (existsSync(directZigPath)) {
+        if (this.fileSystemManager.fileExists(directZigPath)) {
           symlinkTarget = directZigPath;
         } else {
           // Fallback: look for extracted directory structure
@@ -191,19 +186,11 @@ export class ZigInstaller {
 
       log(colors.gray(`Creating symlink: ${zigBinary} -> ${symlinkTarget}`));
 
-      // Verify target exists
-      if (!existsSync(symlinkTarget)) {
-        throw new Error(`Target zig binary not found at: ${symlinkTarget}`);
-      }
-
-      if (this.platform === 'windows') {
-        // On Windows, copy the executable to the bin directory
-        copyFileSync(symlinkTarget, zigBinary);
-      } else {
-        Bun.spawnSync(['ln', '-sf', symlinkTarget, zigBinary]);
-      }
+      // Create symlink using FileSystemManager
+      this.fileSystemManager.createSymlink(symlinkTarget, zigBinary, this.platform);
+      
       this.config.currentVersion = version;
-      this.saveConfig();
+      this.configManager.save(this.config);
       log(colors.green(`✓ Symlinked ${version} to ${zigBinary}`));
     } catch (error) {
       console.error(colors.red('Error creating symlink:'), error);
@@ -234,153 +221,35 @@ export PATH="${this.binDir}:$PATH"
       instructions = `Add this to your shell profile:\nsource "${this.envPath}"`;
     }
 
-    writeFileSync(this.envPath, envContent);
+    this.fileSystemManager.writeFile(this.envPath, envContent);
     log(colors.green(`✓ Created env file at ${this.envPath}`));
     log(colors.yellow(`\nTo use ziggy-managed Zig versions:`));
     log(colors.cyan(instructions));
   }
 
-  private getShellSourceLine(_shellInfo: ShellInfo): string {
-    if (this.platform === 'win32') {
-      return `. "${this.envPath}"`;
-    } else {
-      return `source "${this.envPath}"`;
-    }
-  }
 
-  /**
-   * Check if ziggy is already properly configured in the user's environment
-   * Returns true if ziggy/bin directory is already in PATH and working
-   */
-  private isZiggyAlreadyConfigured(): boolean {
-    const pathEnv = process.env.PATH || '';
-    const pathSeparator = this.platform === 'win32' ? ';' : ':';
-    const pathDirs = pathEnv.split(pathSeparator);
-    
-    // Check if ziggy bin directory is already in PATH
-    const ziggyBinNormalized = resolve(this.binDir);
-    let inPath = false;
-    
-    for (const dir of pathDirs) {
-      if (!dir.trim()) continue; // Skip empty entries
-      
-      try {
-        const normalizedDir = resolve(dir.trim());
-        if (normalizedDir === ziggyBinNormalized) {
-          inPath = true;
-          break;
-        }
-      } catch (_error) {
-        // Skip invalid paths
-        continue;
-      }
-    }
-    
-    // If not in PATH, definitely not configured
-    if (!inPath) {
-      return false;
-    }
-    
-    // Additional verification: check if zig command is accessible and from ziggy
-    try {
-      const which = this.platform === 'win32' ? 'where' : 'which';
-      const result = Bun.spawnSync([which, 'zig'], { 
-        stdout: 'pipe',
-        stderr: 'pipe'
-      });
-      
-      if (result.exitCode === 0) {
-        const zigPath = result.stdout.toString().trim();
-        // Handle multiple paths returned by which/where
-        const firstZigPath = zigPath.split('\n')[0]?.trim() || zigPath;
-        
-        // Check if the found zig is from ziggy's bin directory
-        const ziggyZigPath = join(this.binDir, this.platform === 'win32' ? 'zig.exe' : 'zig');
-        
-        try {
-          const resolvedZigPath = resolve(firstZigPath);
-          const resolvedZiggyPath = resolve(ziggyZigPath);
-          return resolvedZigPath === resolvedZiggyPath;
-        } catch (_error) {
-          // If path resolution fails, fall back to string comparison
-          return firstZigPath.includes(this.binDir) || firstZigPath.startsWith(ziggyBinNormalized);
-        }
-      }
-    } catch (_error) {
-      // If we can't run which/where, assume it's configured if in PATH
-      return inPath;
-    }
-    
-    // If we get here, ziggy/bin is in PATH but zig command is not accessible
-    // This might happen if the symlink is missing or broken
-    return false;
-  }
 
-  /**
-   * Check if env file exists and might be configured
-   * Returns true if env file exists (user might need to source it)
-   */
-  private hasEnvFileConfigured(): boolean {
-    return existsSync(this.envPath);
-  }
 
-  private getZiggyDir(): string {
-    // Check environment variable first
-    const envDir = process.env.ZIGGY_DIR;
-    if (envDir) {
-      return resolve(envDir);
-    }
 
-    // Default to ~/.ziggy
-    const homeDir = process.env.HOME || process.env.USERPROFILE;
-    if (!homeDir) {
-      throw new Error('Unable to determine home directory');
-    }
 
-    return join(homeDir, '.ziggy');
-  }
 
-  private loadConfig(): ZiggyConfig {
-    const defaultConfig: ZiggyConfig = {
-      downloads: {}
-    };
 
-    if (!existsSync(this.configPath)) {
-      // If no config exists, scan for existing installations
-      const scannedConfig = this.scanExistingInstallations();
-      if (Object.keys(scannedConfig.downloads).length > 0) {
-        // Save the scanned config
-        this.config = scannedConfig;
-        this.saveConfig();
-        return scannedConfig;
-      }
-      return defaultConfig;
-    }
 
-    try {
-      const content = readFileSync(this.configPath, 'utf-8');
-      // Simple TOML parsing for our basic structure
-      const config = this.parseSimpleToml(content);
-      return { ...defaultConfig, ...config };
-    } catch (_error) {
-      log(colors.yellow('⚠ Warning: Could not read ziggy.toml, using defaults'));
-      return defaultConfig;
-    }
-  }
+
 
   private scanExistingInstallations(): ZiggyConfig {
     const config: ZiggyConfig = { downloads: {} };
     const versionsDir = join(this.ziggyDir, 'versions');
 
-    if (!existsSync(versionsDir)) {
+    if (!this.fileSystemManager.fileExists(versionsDir)) {
       return config;
     }
 
     log(colors.yellow('📁 No ziggy.toml found. Scanning existing installations...'));
 
-    const versionDirs = readdirSync(versionsDir).filter(dir => {
+    const versionDirs = this.fileSystemManager.listDirectory(versionsDir).filter(dir => {
       const fullPath = join(versionsDir, dir);
-      return statSync(fullPath).isDirectory();
+      return this.fileSystemManager.isDirectory(fullPath);
     });
 
     if (versionDirs.length === 0) {
@@ -408,7 +277,7 @@ export PATH="${this.binDir}:$PATH"
       // Look for zig binary directly in the version directory
       const zigBinary = join(versionPath, 'zig');
 
-      if (existsSync(zigBinary)) {
+      if (this.fileSystemManager.fileExists(zigBinary)) {
         // Try to get version from zig binary
         let version = versionDir;
 
@@ -433,15 +302,15 @@ export PATH="${this.binDir}:$PATH"
         };
       } else {
         // Look for extracted Zig installations (old format)
-        const contents = readdirSync(versionPath);
+        const contents = this.fileSystemManager.listDirectory(versionPath);
         const zigExtraction = contents.find(item =>
-          item.startsWith('zig-') && statSync(join(versionPath, item)).isDirectory()
+          item.startsWith('zig-') && this.fileSystemManager.isDirectory(join(versionPath, item))
         );
 
         if (zigExtraction) {
           // Check if zig binary exists in subdirectory
           const zigBinaryInSubdir = join(versionPath, zigExtraction, 'zig');
-          if (existsSync(zigBinaryInSubdir)) {
+          if (this.fileSystemManager.fileExists(zigBinaryInSubdir)) {
             // Try to get version from directory name or binary
             let version = versionDir;
 
@@ -543,9 +412,7 @@ export PATH="${this.binDir}:$PATH"
 
   private saveConfig(): void {
     const tomlContent = this.generateToml(this.config);
-    mkdirSync(dirname(this.configPath), { recursive: true });
-    appendFileSync(this.configPath, ''); // Create file if it doesn't exist
-    require('fs').writeFileSync(this.configPath, tomlContent);
+    this.fileSystemManager.writeFile(this.configPath, tomlContent);
   }
 
   private generateToml(config: ZiggyConfig): string {
@@ -571,32 +438,13 @@ export PATH="${this.binDir}:$PATH"
     return content;
   }
 
-  private detectArch(): string {
-    const arch = process.arch;
-    switch (arch) {
-      case 'x64': return 'x86_64';
-      case 'arm64': return 'aarch64';
-      case 'ia32': return 'i386';
-      default: return arch;
-    }
-  }
 
-  private detectPlatform(): string {
-    switch (this.detectOS()) {
-      case 'linux': return 'linux';
-      case 'darwin': return 'macos';
-      case 'win32': return 'windows';
-      default: return 'unknown';
-    }
-  }
 
-  private detectOS(): string {
-    return process.platform;
-  }
 
-  private getExt(): string {
-    return this.platform === 'windows' ? 'zip' : 'tar.xz';
-  }
+
+
+
+
 
   public async getAvailableVersions(): Promise<string[]> {
     try {
@@ -650,7 +498,7 @@ export PATH="${this.binDir}:$PATH"
 
       const downloadInfo = versionData[archKey];
       const zigUrl = downloadInfo.tarball;
-      const ext = this.getExt();
+      const ext = this.platformDetector.getArchiveExtension();
       const zigTar = `zig-${this.platform}-${this.arch}-${version}.${ext}`;
       const tarPath = join(installPath, zigTar);
 
@@ -664,12 +512,10 @@ export PATH="${this.binDir}:$PATH"
       const contentLength = parseInt(downloadResponse.headers.get('content-length') || '0');
 
       // Create directory if it doesn't exist
-      if (!existsSync(installPath)) {
-        mkdirSync(installPath, { recursive: true });
-      }
+      this.fileSystemManager.ensureDirectory(installPath);
 
       // Download the file
-      const writer = createWriteStream(tarPath);
+      const writer = this.fileSystemManager.createWriteStream(tarPath);
       const reader = downloadResponse.body?.getReader();
 
       if (!reader) {
@@ -728,13 +574,7 @@ export PATH="${this.binDir}:$PATH"
       try {
         log(colors.yellow(`\nExtracting ${tarPath} to ${installPath}...`));
 
-        if (ext === 'tar.xz') {
-          await this.extractTarXz(tarPath, installPath);
-        } else if (ext === 'zip') {
-          await this.extractZip(tarPath, installPath);
-        } else {
-          throw new Error(`Unsupported file format: ${ext}`);
-        }
+        await this.archiveExtractor.extractArchive(tarPath, installPath);
 
         clearInterval(spinnerInterval);
         process.stdout.write('\r' + ' '.repeat(30) + '\r');
@@ -748,9 +588,7 @@ export PATH="${this.binDir}:$PATH"
 
       // Clean up the downloaded archive
       log(colors.blue('Cleaning up downloaded archive...'));
-      if (existsSync(tarPath)) {
-        rmSync(tarPath);
-      }
+      this.fileSystemManager.safeRemove(tarPath);
       log(colors.green('✓ Installation completed!'));
 
     } catch (error) {
@@ -758,159 +596,19 @@ export PATH="${this.binDir}:$PATH"
     }
   }
 
-  private extractTarXz(filePath: string, outputPath: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      try {
-        const inputStream = createReadStream(filePath);
-        const chunks: Uint8Array[] = [];
 
-        inputStream.on('data', (chunk: string | Buffer) => {
-          chunks.push(Buffer.isBuffer(chunk) ? new Uint8Array(chunk) : new Uint8Array(Buffer.from(chunk)));
-        });
 
-        inputStream.on('end', async () => {
-          try {
-            // Combine all chunks into a single Uint8Array
-            const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-            const compressedData = new Uint8Array(totalLength);
-            let offset = 0;
-            for (const chunk of chunks) {
-              compressedData.set(chunk, offset);
-              offset += chunk.length;
-            }
 
-            const decompressedData = await xz.decompress(compressedData);
 
-            // Create a temporary tar file
-            const tempTarPath = filePath.replace('.tar.xz', '.tar');
-            const tempWriter = createWriteStream(tempTarPath);
-            tempWriter.write(decompressedData);
-            tempWriter.end();
 
-            await new Promise<void>((resolveWrite, rejectWrite) => {
-              tempWriter.on('finish', resolveWrite);
-              tempWriter.on('error', rejectWrite);
-            });
 
-            // Extract the tar file
-            await tar.extract({
-              file: tempTarPath,
-              cwd: outputPath,
-              strip: 1 // Remove the top-level directory
-            });
 
-            // Clean up temp file
-            if (existsSync(tempTarPath)) {
-              rmSync(tempTarPath);
-            }
-
-            resolve();
-          } catch (error) {
-            reject(error);
-          }
-        });
-
-        inputStream.on('error', reject);
-      } catch (error) {
-        reject(error);
-      }
-    });
-  }
-
-  private async extractZip(filePath: string, outputPath: string): Promise<void> {
-    log(colors.gray(`Extracting ZIP: ${filePath} to ${outputPath}`));
-    try {
-      await extractZip(filePath, outputPath);
-      log(colors.gray('ZIP extraction completed'));
-    } catch (error) {
-      console.error(colors.red('ZIP extraction failed:'), error);
-      throw error;
-    }
-  }
-
-  private detectShell(): ShellInfo {
-    const shell = process.env.SHELL || '';
-    const platform = process.platform;
-
-    if (platform === 'win32') {
-      // Windows detection
-      if (process.env.PSModulePath) {
-        return {
-          shell: 'PowerShell',
-          profileFile: '$PROFILE',
-          command: `echo '$env:PATH += ";__ZIG_BIN_PATH__"' >> $PROFILE`
-        };
-      } else {
-        return {
-          shell: 'Command Prompt',
-          profileFile: 'System Environment Variables',
-          command: `setx PATH "%PATH%;__ZIG_BIN_PATH__"`
-        };
-      }
-    }
-
-    // Unix-like systems
-    if (shell.includes('zsh')) {
-      return {
-        shell: 'Zsh',
-        profileFile: '~/.zshrc',
-        command: `echo 'export PATH="$PATH:__ZIG_BIN_PATH__"' >> ~/.zshrc`
-      };
-    } else if (shell.includes('fish')) {
-      return {
-        shell: 'Fish',
-        profileFile: '~/.config/fish/config.fish',
-        command: `echo 'set -x PATH $PATH __ZIG_BIN_PATH__' >> ~/.config/fish/config.fish`
-      };
-    } else if (shell.includes('ksh')) {
-      return {
-        shell: 'Korn Shell',
-        profileFile: '~/.kshrc',
-        command: `echo 'export PATH="$PATH:__ZIG_BIN_PATH__"' >> ~/.kshrc`
-      };
-    } else if (shell.includes('tcsh') || shell.includes('csh')) {
-      return {
-        shell: 'C Shell',
-        profileFile: '~/.cshrc',
-        command: `echo 'setenv PATH $PATH:__ZIG_BIN_PATH__' >> ~/.cshrc`
-      };
-    } else {
-      // Default to bash
-      return {
-        shell: 'Bash',
-        profileFile: '~/.bashrc',
-        command: `echo 'export PATH="$PATH:__ZIG_BIN_PATH__"' >> ~/.bashrc`
-      };
-    }
-  }
-
-  private expandHomePath(path: string): string {
-    if (path.startsWith('~')) {
-      const homeDir = process.env.HOME || process.env.USERPROFILE || '';
-      return path.replace('~', homeDir);
-    }
-    return path;
-  }
-
-  private getPathExportLine(shell: string, zigBinPath: string): string {
-    switch (shell.toLowerCase()) {
-      case 'fish':
-        return `set -x PATH $PATH ${zigBinPath}`;
-      case 'c shell':
-      case 'tcsh':
-      case 'csh':
-        return `setenv PATH $PATH:${zigBinPath}`;
-      default:
-        // Bash, Zsh, Korn Shell, etc.
-        return `export PATH="$PATH:${zigBinPath}"`;
-    }
-  }
 
   private async addToSystemPath(installPath: string): Promise<string[]> {
     const changes: string[] = [];
     const version = await this.getLatestStableVersion();
     const _zigBinPath = dirname(join(installPath, `zig-${this.platform}-${this.arch}-${version}`, 'zig'));
-    const shellInfo = this.detectShell();
+    const shellInfo = this.platformDetector.getShellInfo();
 
     log(colors.yellow(`\nDetected shell: ${colors.cyan(shellInfo.shell)}`));
     log(colors.yellow('\nZiggy will create an environment file at:'));
@@ -934,7 +632,7 @@ export PATH="${this.binDir}:$PATH"
       try {
         // Ask for explicit permission to create .ziggy directory and env file
         const createZiggy = await clack.confirm({
-          message: `Create ${this.getZiggyDir()} directory and env file?`,
+          message: `Create ${this.platformDetector.getZiggyDir()} directory and env file?`,
           initialValue: true
         });
 
@@ -954,7 +652,7 @@ export PATH="${this.binDir}:$PATH"
         log(colors.yellow('='.repeat(60)));
 
         log(colors.yellow('\nTo complete the Zig installation, add this line to your shell profile:'));
-        const sourceLine = this.getShellSourceLine(shellInfo);
+        const sourceLine = this.platformDetector.getShellSourceLine(this.envPath);
         log(colors.green(sourceLine));
 
         // Platform-specific instructions
@@ -1016,10 +714,10 @@ export PATH="${this.binDir}:$PATH"
 
   private async validateInstallPath(userPath: string): Promise<string> {
     // First expand ~ to home directory if present
-    const expandedPath = this.expandHomePath(userPath);
+    const expandedPath = this.platformDetector.expandHomePath(userPath);
     const resolvedPath = resolve(this.cwd, expandedPath);
 
-    if (!existsSync(resolvedPath)) {
+    if (!this.fileSystemManager.fileExists(resolvedPath)) {
       // Ask before creating directory
       const createDir = await clack.confirm({
         message: `Directory ${resolvedPath} doesn't exist. Create it?`,
@@ -1028,18 +726,17 @@ export PATH="${this.binDir}:$PATH"
       if (clack.isCancel(createDir) || !createDir) {
         throw new Error('Installation cancelled - directory not created');
       }
-      mkdirSync(resolvedPath, { recursive: true });
+      this.fileSystemManager.createDirectory(resolvedPath);
       log(colors.green(`✓ Created directory: ${resolvedPath}`));
       return resolvedPath;
     }
 
-    const stats = statSync(resolvedPath);
-    if (!stats.isDirectory()) {
+    if (!this.fileSystemManager.isDirectory(resolvedPath)) {
       throw new Error('Path is not a directory');
     }
 
     // Check if directory is empty
-    const files = readdirSync(resolvedPath);
+    const files = this.fileSystemManager.listDirectory(resolvedPath);
     if (files.length > 0) {
       const overwrite = await clack.confirm({
         message: 'Directory is not empty. Continue?',
@@ -1063,7 +760,7 @@ export PATH="${this.binDir}:$PATH"
     const asciiLines = ZIG_ASCII_ART.trim().split('\n');
 
     // Prepare system info lines
-    const shellInfo = this.detectShell();
+    const shellInfo = this.platformDetector.getShellInfo();
     const systemInfo = [
       `Architecture: ${colors.cyan(this.arch)}`,
       `Platform: ${colors.cyan(this.platform)}`,
@@ -1121,7 +818,7 @@ export PATH="${this.binDir}:$PATH"
     }
 
     // Check if ziggy directory exists and setup if needed
-    if (!existsSync(this.ziggyDir)) {
+    if (!this.fileSystemManager.fileExists(this.ziggyDir)) {
       log(colors.yellow(`\n🔧 First time setup: Ziggy directory doesn't exist.`));
 
       const createDir = await clack.confirm({
@@ -1134,13 +831,13 @@ export PATH="${this.binDir}:$PATH"
         process.exit(1);
       }
 
-      mkdirSync(this.ziggyDir, { recursive: true });
-      mkdirSync(join(this.ziggyDir, 'versions'), { recursive: true });
-      mkdirSync(join(this.ziggyDir, 'bin'), { recursive: true });
+      this.fileSystemManager.createDirectory(this.ziggyDir);
+      this.fileSystemManager.createDirectory(join(this.ziggyDir, 'versions'));
+      this.fileSystemManager.createDirectory(join(this.ziggyDir, 'bin'));
       log(colors.green(`✓ Created Ziggy directory at ${this.ziggyDir}`));
 
       // Save initial empty config
-      this.saveConfig();
+      this.configManager.save(this.config);
       log(colors.green(`✓ Initialized ziggy.toml configuration`));
     }
 
@@ -1268,7 +965,7 @@ export PATH="${this.binDir}:$PATH"
 
     // Check if directory already exists
     const targetPath = resolve(process.cwd(), projectName);
-    if (existsSync(targetPath)) {
+    if (this.fileSystemManager.fileExists(targetPath)) {
       clack.log.error(`Directory '${projectName}' already exists`);
       return;
     }
@@ -1347,7 +1044,7 @@ export PATH="${this.binDir}:$PATH"
         spinner.start('Creating project with zig init...');
 
         // Create the directory first
-        mkdirSync(targetPath, { recursive: true });
+        this.fileSystemManager.createDirectory(targetPath);
 
         // Get the active zig command
         let zigCommand = 'zig';
@@ -1401,13 +1098,7 @@ export PATH="${this.binDir}:$PATH"
       clack.log.error(`Failed to create project: ${error instanceof Error ? error.message : String(error)}`);
 
       // Clean up if directory was created
-      if (existsSync(targetPath)) {
-        try {
-          rmSync(targetPath, { recursive: true, force: true });
-        } catch (cleanupError) {
-          console.warn(colors.yellow(`⚠ Failed to clean up directory: ${cleanupError}`));
-        }
-      }
+      this.fileSystemManager.safeRemove(targetPath);
     }
   }
 
@@ -1481,7 +1172,7 @@ export PATH="${this.binDir}:$PATH"
       }
     }
 
-    this.saveConfig();
+    this.configManager.save(this.config);
   }
 
   public async listVersionsTUI(): Promise<void> {
@@ -1604,9 +1295,9 @@ export PATH="${this.binDir}:$PATH"
     let cleaned = 0;
     for (const version of downloadedVersions) {
       const info = this.config.downloads[version];
-      if (info && existsSync(info.path)) {
+      if (info && this.fileSystemManager.fileExists(info.path)) {
         try {
-          rmSync(info.path, { recursive: true, force: true });
+          this.fileSystemManager.removeDirectory(info.path);
           cleaned++;
         } catch (error) {
           log(colors.red(`Failed to remove ${version}: ${error}`));
@@ -1617,17 +1308,11 @@ export PATH="${this.binDir}:$PATH"
     // Clear downloads config
     this.config.downloads = {};
     this.config.currentVersion = this.config.systemZig ? 'system' : undefined;
-    this.saveConfig();
+    this.configManager.save(this.config);
 
     // Remove symlink if it exists
     const symlink = join(this.ziggyDir, 'bin', 'zig');
-    if (existsSync(symlink)) {
-      try {
-        rmSync(symlink);
-      } catch (_error) {
-        // Ignore errors removing symlink
-      }
-    }
+    this.fileSystemManager.safeRemove(symlink);
 
     spinner.stop(`Cleaned up ${cleaned} Zig installations`);
     clack.log.success('All Zig versions removed successfully');
@@ -1672,9 +1357,9 @@ export PATH="${this.binDir}:$PATH"
     let cleaned = 0;
     for (const version of versionsToDelete) {
       const info = this.config.downloads[version];
-      if (info && existsSync(info.path)) {
+      if (info && this.fileSystemManager.fileExists(info.path)) {
         try {
-          rmSync(info.path, { recursive: true, force: true });
+          this.fileSystemManager.removeDirectory(info.path);
           delete this.config.downloads[version];
           cleaned++;
         } catch (error) {
@@ -1683,7 +1368,7 @@ export PATH="${this.binDir}:$PATH"
       }
     }
 
-    this.saveConfig();
+    this.configManager.save(this.config);
     spinner.stop(`Cleaned up ${cleaned} old installations`);
     clack.log.success(`Kept ${currentVersion} as active version`);
 
@@ -1733,9 +1418,9 @@ export PATH="${this.binDir}:$PATH"
     let cleaned = 0;
     for (const version of versionsToDelete) {
       const info = this.config.downloads[version];
-      if (info && existsSync(info.path)) {
+      if (info && this.fileSystemManager.fileExists(info.path)) {
         try {
-          rmSync(info.path, { recursive: true, force: true });
+          this.fileSystemManager.removeDirectory(info.path);
           delete this.config.downloads[version];
           cleaned++;
         } catch (error) {
@@ -1747,7 +1432,7 @@ export PATH="${this.binDir}:$PATH"
     // Set the kept version as current
     this.config.currentVersion = versionToKeep;
     this.createSymlink(this.config.downloads[versionToKeep]!.path, versionToKeep);
-    this.saveConfig();
+    this.configManager.save(this.config);
 
     spinner.stop(`Cleaned up ${cleaned} installations`);
     clack.log.success(`Kept ${versionToKeep} and set it as active version`);
@@ -1801,7 +1486,7 @@ export PATH="${this.binDir}:$PATH"
       downloadedAt: new Date().toISOString(),
       status: 'downloading'
     };
-    this.saveConfig();
+    this.configManager.save(this.config);
 
     try {
       // Setup cleanup for graceful shutdown
@@ -1811,12 +1496,10 @@ export PATH="${this.binDir}:$PATH"
           // Remove the incomplete download entry entirely
           if (this.config.downloads[version]) {
             delete this.config.downloads[version];
-            this.saveConfig();
+            this.configManager.save(this.config);
           }
           // Remove any partial files
-          if (existsSync(installPath)) {
-            rmSync(installPath, { recursive: true, force: true });
-          }
+          this.fileSystemManager.safeRemove(installPath);
           log(colors.yellow('✓ Cleanup completed'));
         }
       };
@@ -1825,12 +1508,12 @@ export PATH="${this.binDir}:$PATH"
 
       // Mark as completed
       this.config.downloads[version]!.status = 'completed';
-      this.saveConfig();
+      this.configManager.save(this.config);
 
       log(colors.green(`\n✅ Zig ${version} successfully installed!`));
 
       // Create env file if it doesn't exist
-      if (!existsSync(this.envPath)) {
+      if (!this.fileSystemManager.fileExists(this.envPath)) {
         this.createEnvFile();
       }
 
@@ -1870,7 +1553,7 @@ export PATH="${this.binDir}:$PATH"
     } catch (error) {
       // Mark as failed
       this.config.downloads[version]!.status = 'failed';
-      this.saveConfig();
+      this.configManager.save(this.config);
 
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error(colors.red('Download failed:'), errorMessage);
@@ -1937,26 +1620,37 @@ export PATH="${this.binDir}:$PATH"
 
   private async setupPowerShellProfile(): Promise<void> {
     try {
-      const profilePath = `${process.env.USERPROFILE}\\Documents\\PowerShell\\Microsoft.PowerShell_profile.ps1`;
+      // Use PowerShell's $PROFILE variable to get the correct path
+      const profileResult = Bun.spawnSync(['powershell', '-Command', '$PROFILE'], {
+        stdout: 'pipe',
+        stderr: 'pipe'
+      });
+      
+      let profilePath: string;
+      if (profileResult.exitCode === 0) {
+        profilePath = profileResult.stdout.toString().trim();
+      } else {
+        // Fallback to the common path for Windows PowerShell 5.x
+        profilePath = `${process.env.USERPROFILE}\\Documents\\WindowsPowerShell\\Microsoft.PowerShell_profile.ps1`;
+      }
+      
       const envLine = `. "${this.envPath}"`;
       
       // Check if profile directory exists, create if not
       const profileDir = dirname(profilePath);
-      if (!existsSync(profileDir)) {
-        mkdirSync(profileDir, { recursive: true });
-      }
+      this.fileSystemManager.ensureDirectory(profileDir);
       
       // Check if the line already exists in the profile
       let profileContent = '';
-      if (existsSync(profilePath)) {
-        profileContent = readFileSync(profilePath, 'utf8');
+      if (this.fileSystemManager.fileExists(profilePath)) {
+        profileContent = this.fileSystemManager.readFile(profilePath);
       }
       
       if (profileContent.includes(envLine)) {
         log(colors.yellow('✓ PowerShell profile already configured!'));
       } else {
-        // Add the line to the profile
-        appendFileSync(profilePath, `\n${envLine}\n`);
+        // Add the line to the profile with a comment
+        this.fileSystemManager.appendFile(profilePath, `\n# Added by Ziggy\n${envLine}\n`);
         log(colors.green('✓ PowerShell profile updated successfully!'));
         log(colors.yellow('Please restart your PowerShell terminal to use Zig.'));
       }
@@ -1970,14 +1664,14 @@ export PATH="${this.binDir}:$PATH"
 
   private showSetupInstructions(): void {
     // Check if ziggy is already properly configured
-    if (this.isZiggyAlreadyConfigured()) {
+    if (this.platformDetector.isZiggyConfigured(this.binDir)) {
       log(colors.green('\n✅ Ziggy is already configured in your environment!'));
       log(colors.gray('You can start using Zig right away.'));
       return;
     }
 
     // Check if env file exists but PATH is not configured
-    if (this.hasEnvFileConfigured()) {
+    if (this.platformDetector.hasEnvFileConfigured(this.envPath)) {
       log(colors.yellow('\n📋 Environment file exists but PATH needs to be configured:'));
       log(colors.cyan('To activate Zig in your current session, run:'));
       const ziggyDirVar = process.env.ZIGGY_DIR ? '$ZIGGY_DIR' : '$HOME/.ziggy';
@@ -2005,7 +1699,7 @@ export PATH="${this.binDir}:$PATH"
       log(colors.green(`source ${this.envPath}`));
 
       // Shell-specific file hints
-      const shellInfo = this.detectShell();
+      const shellInfo = this.platformDetector.getShellInfo();
       log(colors.gray(`\nShell profile location for ${shellInfo.shell}: ${shellInfo.profileFile}`));
     } else {
       // Unknown platform - fallback to manual PATH setup

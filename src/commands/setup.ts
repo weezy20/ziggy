@@ -13,8 +13,25 @@ export async function setupCommand(): Promise<void> {
   log();
 
   if (installer.platform === 'windows') {
-    // Windows PowerShell setup
-    const profilePath = process.env.USERPROFILE + '\\Documents\\PowerShell\\Microsoft.PowerShell_profile.ps1';
+    // Windows PowerShell setup - get the actual $PROFILE path
+    let profilePath: string;
+    try {
+      const profileResult = Bun.spawnSync(['powershell', '-Command', '$PROFILE'], {
+        stdout: 'pipe',
+        stderr: 'pipe'
+      });
+      
+      if (profileResult.exitCode === 0) {
+        profilePath = profileResult.stdout.toString().trim();
+      } else {
+        // Fallback to Windows PowerShell 5.x path
+        profilePath = process.env.USERPROFILE + '\\Documents\\WindowsPowerShell\\Microsoft.PowerShell_profile.ps1';
+      }
+    } catch (error) {
+      // Fallback to Windows PowerShell 5.x path
+      profilePath = process.env.USERPROFILE + '\\Documents\\WindowsPowerShell\\Microsoft.PowerShell_profile.ps1';
+    }
+    
     const envLine = `. "${installer.envPath}"`;
     
     log(colors.yellow('Setting up PowerShell environment...'));
@@ -47,8 +64,8 @@ export async function setupCommand(): Promise<void> {
         }
       }
       
-      // Add the line
-      appendFileSync(profilePath, `\n${envLine}\n`);
+      // Add the line with a comment
+      appendFileSync(profilePath, `\n# Added by Ziggy\n${envLine}\n`);
       
       log(colors.green('✅ Successfully added Ziggy to PowerShell profile!'));
       log(colors.yellow('\n🔄 Please restart PowerShell or run:'));
@@ -150,8 +167,8 @@ export async function setupCommand(): Promise<void> {
           }
         }
         
-        // Add the line
-        appendFileSync(profilePath, `\n${envLine}\n`);
+        // Add the line with a comment
+        appendFileSync(profilePath, `\n# Added by Ziggy\n${envLine}\n`);
         
         log(colors.green(`✅ Successfully added Ziggy to ${defaultConfig!.name} profile!`));
         log(colors.yellow(`\n🔄 To start using Ziggy immediately, run:`));
