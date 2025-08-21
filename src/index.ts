@@ -1139,6 +1139,10 @@ export PATH="${this.binDir}:$PATH"
     this.config = this.configManager.load();
   }
 
+  public getConfigManager(): ConfigManager {
+    return this.configManager;
+  }
+
   public async listVersionsTUI(): Promise<void> {
     const choices = [];
 
@@ -1600,6 +1604,12 @@ export PATH="${this.binDir}:$PATH"
     if (this.platformDetector.isZiggyConfigured(this.binDir)) {
       log(colors.green('\n✅ Ziggy is already configured in your environment!'));
       log(colors.gray('You can start using Zig right away.'));
+      return;
+    }
+
+    // Check if ziggy is already configured in PATH
+    if (this.platformDetector.isZiggyInPath(this.binDir)) {
+      // ziggy/bin is already in PATH, no need for env file instructions
       return;
     }
 

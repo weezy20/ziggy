@@ -5,6 +5,9 @@
 
 import { join } from 'path';
 import { colors } from '../utils/colors.js';
+import { shuffleArray } from '../utils/array.js';
+import { verifyChecksum, verifyMinisignature } from '../utils/crypto.js';
+import { ZIG_COMMUNITY_MIRRORS_URL, MIRRORS_CACHE_DURATION_HOURS, MAX_MIRROR_RETRIES, ZIG_MINISIGN_PUBLIC_KEY } from '../constants.js';
 
 // Simple log function
 const log = console.log;
@@ -50,6 +53,13 @@ export class ZigInstaller implements IZigInstaller {
   }
 
   /**
+   * Get the config manager instance
+   */
+  public getConfigManager(): IConfigManager {
+    return this.configManager;
+  }
+
+  /**
    * Download and install a specific Zig version
    */
   public async downloadVersion(version: string): Promise<void> {
@@ -88,11 +98,18 @@ export class ZigInstaller implements IZigInstaller {
     };
 
     try {
-      await this.downloadZig(version, installPath);
+      const verificationInfo = await this.downloadZig(version, installPath);
 
-      // Mark as completed
+      // Mark as completed and save verification metadata
       const updatedConfig = this.configManager.load();
-      updatedConfig.downloads[version]!.status = 'completed';
+      const downloadInfo = updatedConfig.downloads[version]!;
+      downloadInfo.status = 'completed';
+      downloadInfo.checksum = verificationInfo.checksum;
+      downloadInfo.checksumVerified = verificationInfo.checksumVerified;
+      downloadInfo.minisignVerified = verificationInfo.minisignVerified;
+      downloadInfo.signature = verificationInfo.signature;
+      downloadInfo.verificationStatus = verificationInfo.verificationStatus;
+      downloadInfo.downloadUrl = verificationInfo.downloadUrl;
       this.configManager.save(updatedConfig);
 
       log(colors.green(`\n✅ Zig ${version} successfully installed!`));
@@ -373,7 +390,14 @@ export class ZigInstaller implements IZigInstaller {
    * Download Zig from the official repository
    * @private
    */
-  private async downloadZig(version: string, installPath: string): Promise<void> {
+  private async downloadZig(version: string, installPath: string): Promise<{
+    checksum?: string;
+    checksumVerified?: boolean;
+    minisignVerified?: boolean;
+    signature?: string;
+    verificationStatus?: 'pending' | 'verified' | 'failed';
+    downloadUrl?: string;
+  }> {
     log(colors.blue(`Getting download info for Zig ${version}...`));
 
     try {
@@ -395,55 +419,26 @@ export class ZigInstaller implements IZigInstaller {
       }
 
       const downloadInfo = versionData[archKey];
-      const zigUrl = downloadInfo.tarball;
+      const originalUrl = downloadInfo.tarball;
       const ext = this.platformDetector.getArchiveExtension();
       const zigTar = `zig-${this.platform}-${this.arch}-${version}.${ext}`;
       const tarPath = join(installPath, zigTar);
 
-      log(colors.blue(`Downloading Zig ${version}...`));
-
-      const downloadResponse = await fetch(zigUrl);
-      if (!downloadResponse.ok) {
-        throw new Error(`HTTP error! status: ${downloadResponse.status}`);
-      }
-
-      const contentLength = parseInt(downloadResponse.headers.get('content-length') || '0');
-
       // Create directory if it doesn't exist
       this.fileSystemManager.ensureDirectory(installPath);
 
-      // Download the file
-      const writer = this.fileSystemManager.createWriteStream(tarPath);
-      const reader = downloadResponse.body?.getReader();
-
-      if (!reader) {
-        throw new Error('Failed to get response stream');
-      }
-
-      let downloadedBytes = 0;
-      const progressWidth = 30;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        writer.write(value);
-        downloadedBytes += value.length;
-
-        if (contentLength > 0) {
-          const progress = downloadedBytes / contentLength;
-          const filled = Math.floor(progress * progressWidth);
-          const bar = '█'.repeat(filled) + '░'.repeat(progressWidth - filled);
-          const percentage = Math.floor(progress * 100);
-          const mb = (downloadedBytes / 1024 / 1024).toFixed(1);
-          const totalMb = (contentLength / 1024 / 1024).toFixed(1);
-
-          process.stdout.write(`\r${colors.cyan('Downloading:')} [${bar}] ${percentage}% (${mb}/${totalMb} MB)`);
-        }
-      }
-
-      writer.end();
-      process.stdout.write('\n');
+      // Try download with mirror rotation
+      const downloadInfoWithChecksum: DownloadInfo = {
+        version,
+        path: installPath,
+        status: 'downloading' as const,
+        downloadedAt: new Date().toISOString(),
+        checksum: downloadInfo.shasum, // Get checksum from the download index
+        checksumVerified: false,
+        minisignVerified: false,
+        verificationStatus: 'pending'
+      };
+      await this.downloadWithMirrors(originalUrl, tarPath, downloadInfoWithChecksum);
 
       log(colors.blue('Extracting archive...'));
 
@@ -459,6 +454,16 @@ export class ZigInstaller implements IZigInstaller {
       log(colors.blue('Cleaning up downloaded archive...'));
       this.fileSystemManager.safeRemove(tarPath);
       log(colors.green('✓ Installation completed!'));
+
+      // Return verification information
+      return {
+        checksum: downloadInfoWithChecksum.checksum,
+        checksumVerified: downloadInfoWithChecksum.checksumVerified,
+        minisignVerified: downloadInfoWithChecksum.minisignVerified,
+        signature: downloadInfoWithChecksum.signature,
+        verificationStatus: downloadInfoWithChecksum.verificationStatus,
+        downloadUrl: downloadInfoWithChecksum.downloadUrl
+      };
 
     } catch (error) {
       throw new Error(`Failed to download Zig: ${error}`);
@@ -567,6 +572,211 @@ export class ZigInstaller implements IZigInstaller {
     } else {
       log(colors.yellow('\n📭 No Zig versions installed yet.'));
       log(colors.cyan('Use `ziggy` to install a Zig version.'));
+    }
+  }
+
+  /**
+   * Download file with mirror rotation and verification
+   */
+  private async downloadWithMirrors(originalUrl: string, targetPath: string, downloadInfo: DownloadInfo): Promise<void> {
+    const mirrorUrls = await this.getMirrorUrls(originalUrl);
+    
+    // Try community mirrors first (shuffled for load balancing)
+    const shuffledMirrors = shuffleArray(mirrorUrls);
+    const urlsToTry = [...shuffledMirrors.slice(0, MAX_MIRROR_RETRIES), originalUrl];
+
+    let lastError: Error | null = null;
+    let downloadSuccess = false;
+
+    for (let i = 0; i < urlsToTry.length; i++) {
+      const url = urlsToTry[i];
+      if (!url) continue;
+      
+      const isMirror = i < MAX_MIRROR_RETRIES;
+      const isOriginal = !isMirror;
+
+      try {
+        const hostname = new URL(url).hostname;
+        if (isOriginal) {
+          log(colors.blue(`Attempting download from: ${hostname} (official fallback)`));
+        } else {
+          log(colors.blue(`Attempting download from: ${hostname} (mirror ${i + 1}/${MAX_MIRROR_RETRIES})`));
+        }
+        
+        await this.downloadFile(url, targetPath);
+        
+        // NEVER SKIP signature verification - as per requirements
+        log(colors.blue('Downloading and verifying signature...'));
+        const signatureUrl = `${url}.minisig`;
+        const signatureBuffer = await this.downloadSignature(signatureUrl);
+        
+        if (!signatureBuffer) {
+          log(colors.yellow(`⚠ Could not download signature from ${hostname}, trying next mirror...`));
+          this.fileSystemManager.safeRemove(targetPath);
+          continue;
+        }
+
+        // Verify minisign signature - REQUIRED step
+        log(colors.blue('Verifying minisign signature...'));
+        const signatureValid = verifyMinisignature(targetPath, signatureBuffer, ZIG_MINISIGN_PUBLIC_KEY);
+        if (!signatureValid) {
+          log(colors.yellow(`⚠ Signature verification failed for ${hostname}, trying next mirror...`));
+          this.fileSystemManager.safeRemove(targetPath);
+          continue;
+        }
+        log(colors.green('✓ Signature verified'));
+
+        // Verify checksum if available
+        if (downloadInfo.checksum) {
+          log(colors.blue('Verifying download checksum...'));
+          const checksumValid = verifyChecksum(targetPath, downloadInfo.checksum);
+          if (!checksumValid) {
+            log(colors.yellow(`⚠ Checksum verification failed for ${hostname}, trying next mirror...`));
+            this.fileSystemManager.safeRemove(targetPath);
+            continue;
+          }
+          log(colors.green('✓ Checksum verified'));
+        }
+
+        // Update download info with verification status
+        downloadInfo.signature = signatureBuffer.toString('base64');
+        downloadInfo.checksumVerified = !!downloadInfo.checksum;
+        downloadInfo.minisignVerified = true;
+        downloadInfo.verificationStatus = 'verified';
+        downloadInfo.downloadUrl = url;
+
+        log(colors.green(`Successfully fetched and verified Zig from ${hostname}!`));
+        downloadSuccess = true;
+        break;
+      } catch (error) {
+        lastError = error as Error;
+        const hostname = new URL(url).hostname;
+        log(colors.yellow(`⚠ Download failed from ${hostname}: ${error}`));
+        this.fileSystemManager.safeRemove(targetPath);
+        continue;
+      }
+    }
+
+    if (!downloadSuccess) {
+      throw new Error(`Failed to download from all mirrors. Last error: ${lastError?.message}`);
+    }
+  }
+
+  /**
+   * Get community mirror URLs for a given original URL
+   */
+  private async getMirrorUrls(originalUrl: string): Promise<string[]> {
+    const mirrorUrls: string[] = [];
+    const config = this.configManager.load();
+    
+    // Check if we have cached mirrors and they're not expired
+    const cachedMirrors = config.communityMirrors;
+    const lastUpdated = config.communityMirrorsLastUpdated;
+    const now = new Date();
+    const cacheAge = lastUpdated ? 
+      (now.getTime() - new Date(lastUpdated).getTime()) / (1000 * 60 * 60) : 
+      Infinity;
+
+    let mirrors: string[] = [];
+
+    if (cachedMirrors && cacheAge < MIRRORS_CACHE_DURATION_HOURS) {
+      // Use cached mirrors
+      mirrors = cachedMirrors;
+      log(colors.gray(`Using cached community mirrors (${Math.floor(cacheAge)}h old)`));
+    } else {
+      // Fetch fresh mirrors
+      try {
+        log(colors.blue('Fetching updated community mirrors...'));
+        const mirrorsResponse = await fetch(ZIG_COMMUNITY_MIRRORS_URL);
+        if (mirrorsResponse.ok) {
+          const mirrorsText = await mirrorsResponse.text();
+          mirrors = mirrorsText.split('\n').filter(line => line.trim() && line.startsWith('https://'));
+          
+          // Update cache
+          const updatedConfig = { ...config };
+          updatedConfig.communityMirrors = mirrors;
+          updatedConfig.communityMirrorsLastUpdated = now.toISOString();
+          this.configManager.save(updatedConfig);
+          
+          log(colors.green(`✓ Updated community mirrors cache (${mirrors.length} mirrors)`));
+        } else {
+          throw new Error(`HTTP ${mirrorsResponse.status}`);
+        }
+      } catch (error) {
+        log(colors.yellow(`⚠ Could not fetch community mirrors: ${error}`));
+        // Use cached mirrors as fallback even if expired
+        if (cachedMirrors) {
+          mirrors = cachedMirrors;
+          log(colors.yellow('Using expired cached mirrors as fallback'));
+        }
+      }
+    }
+
+    // Convert original URL to use mirrors
+    const urlParts = originalUrl.replace('https://ziglang.org/download/', '');
+    for (const mirror of mirrors) {
+      mirrorUrls.push(`${mirror.trim()}/${urlParts}?source=ziggy`);
+    }
+
+    return mirrorUrls;
+  }
+
+  /**
+   * Download a file from a URL with progress display
+   */
+  private async downloadFile(url: string, targetPath: string): Promise<void> {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const contentLength = parseInt(response.headers.get('content-length') || '0');
+    const writer = this.fileSystemManager.createWriteStream(targetPath);
+    const reader = response.body?.getReader();
+
+    if (!reader) {
+      throw new Error('Failed to get response stream');
+    }
+
+    let downloadedBytes = 0;
+    const progressWidth = 30;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      writer.write(value);
+      downloadedBytes += value.length;
+
+      if (contentLength > 0) {
+        const progress = downloadedBytes / contentLength;
+        const filled = Math.floor(progress * progressWidth);
+        const bar = '█'.repeat(filled) + '░'.repeat(progressWidth - filled);
+        const percentage = Math.floor(progress * 100);
+        const mb = (downloadedBytes / 1024 / 1024).toFixed(1);
+        const totalMb = (contentLength / 1024 / 1024).toFixed(1);
+
+        process.stdout.write(`\r${colors.cyan('Downloading:')} [${bar}] ${percentage}% (${mb}/${totalMb} MB)`);
+      }
+    }
+
+    writer.end();
+    process.stdout.write('\n');
+  }
+
+  /**
+   * Download signature file
+   */
+  private async downloadSignature(signatureUrl: string): Promise<Buffer | null> {
+    try {
+      const response = await fetch(signatureUrl);
+      if (!response.ok) {
+        return null;
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      return Buffer.from(arrayBuffer);
+    } catch (error) {
+      return null;
     }
   }
 }

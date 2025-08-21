@@ -105,6 +105,25 @@ export class PlatformDetector implements IPlatformDetector {
   }
 
   /**
+   * Check if ziggy bin directory is already in PATH
+   */
+  public isZiggyInPath(binDir: string): boolean {
+    const pathEnv = process.env.PATH || '';
+    const pathSeparator = process.platform === 'win32' ? ';' : ':';
+    const paths = pathEnv.split(pathSeparator);
+    
+    // Normalize paths for comparison
+    const normalizedBinDir = resolve(binDir);
+    return paths.some(path => {
+      try {
+        return resolve(path) === normalizedBinDir;
+      } catch {
+        return false;
+      }
+    });
+  }
+
+  /**
    * Get the ziggy directory path, checking environment variable first
    */
   public getZiggyDir(): string {

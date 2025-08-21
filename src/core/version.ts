@@ -48,13 +48,14 @@ export class VersionManager implements IVersionManager {
    */
   public async validateVersion(version: string): Promise<boolean> {
     try {
-      const response = await fetch(`https://ziglang.org/download/${version}/index.json`);
+      const response = await fetch(`https://ziglang.org/download/index.json`);
       if (!response.ok) {
         return false;
       }
       const data = await response.json() as ZigDownloadIndex;
-      const archKey = `${this.arch}-${this.platform}`;
-      return !!data[archKey];
+      
+      // Check if the version exists in the download index
+      return !!data[version];
     } catch (_error) {
       return false;
     }

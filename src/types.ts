@@ -45,6 +45,26 @@ export interface DownloadInfo {
   checksumVerified?: boolean;
   minisignVerified?: boolean;
   downloadUrl?: string;
+  signature?: string;
+  verificationStatus?: 'pending' | 'verified' | 'failed';
+}
+
+export interface DownloadStats {
+  totalDownloads: number;
+  successfulDownloads: number;
+  failedDownloads: number;
+  totalDownloadTime: number; // in milliseconds
+  mirrorUsage: Record<string, number>;
+  checksumVerifications: number;
+  checksumFailures: number;
+  lastUpdated: string;
+}
+
+export interface MirrorHealthStats {
+  url: string;
+  responseTime: number;
+  status: 'healthy' | 'slow' | 'unreachable';
+  lastChecked: string;
 }
 
 export interface ZiggyConfig {
@@ -55,6 +75,9 @@ export interface ZiggyConfig {
     path: string;
     version: string;
   };
+  communityMirrors?: string[];
+  communityMirrorsLastUpdated?: string;
+  downloadStats?: DownloadStats;
 }
 
 export interface DownloadProgress {

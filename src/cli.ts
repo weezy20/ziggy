@@ -5,6 +5,7 @@ import { useCommand } from './commands/use';
 import { listCommand } from './commands/list';
 import { cleanCommand } from './commands/clean';
 import { setupCommand } from './commands/setup';
+import { statsCommand } from './commands/stats';
 import { colors } from './utils/colors';
 
 export function setupCLI(): Command {
@@ -76,6 +77,20 @@ export function setupCLI(): Command {
     .action(async () => {
       try {
         await setupCommand();
+      } catch (error) {
+        console.error(colors.red('Error:'), error);
+        process.exit(1);
+      }
+    });
+
+  // Stats command - show download statistics and mirror health
+  program
+    .command('stats')
+    .description('Show download statistics and mirror health')
+    .action(async () => {
+      try {
+        const installer = new ZigInstaller();
+        await statsCommand(installer.getConfigManager());
       } catch (error) {
         console.error(colors.red('Error:'), error);
         process.exit(1);

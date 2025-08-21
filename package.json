@@ -1,6 +1,6 @@
 {
   "name": "@weezy20/ziggy",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "A fast, easy to use, Zig programming language installer and version manager powered by Bun",
   "keywords": [
     "zig",
@@ -43,6 +43,7 @@
     "@types/which": "^3.0.4",
     "commander": "^14.0.0",
     "smol-toml": "^1.4.2",
+    "sodium-native": "^4.3.3",
     "tar": "^7.4.3",
     "which": "^5.0.0",
     "zip-lib": "1.1.2"

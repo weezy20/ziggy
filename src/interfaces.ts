@@ -13,6 +13,7 @@ export interface IZigInstaller {
   validateVersion(version: string): Promise<boolean>;
   cleanup(): Promise<void>;
   getCurrentDownload(): { cleanup?: () => void } | null;
+  getConfigManager(): IConfigManager;
 }
 
 // Configuration management interface
@@ -39,6 +40,7 @@ export interface IPlatformDetector {
   getShellInfo(): ShellInfo;
   isZiggyConfigured(binDir: string): boolean;
   hasEnvFileConfigured(envPath: string): boolean;
+  isZiggyInPath(binDir: string): boolean;
   getZiggyDir(): string;
   expandHomePath(path: string): string;
   getShellSourceLine(envPath: string): string;
