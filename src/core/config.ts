@@ -146,6 +146,17 @@ export class ConfigManager implements IConfigManager {
       config.currentVersion = parsed.currentVersion;
     }
 
+    // Handle systemZig
+    if (parsed.systemZig && typeof parsed.systemZig === 'object') {
+      const systemZig = parsed.systemZig as any;
+      if (typeof systemZig.path === 'string' && typeof systemZig.version === 'string') {
+        config.systemZig = {
+          path: systemZig.path,
+          version: systemZig.version
+        };
+      }
+    }
+
     // Handle downloads section
     if (parsed.downloads && typeof parsed.downloads === 'object') {
       for (const [version, downloadData] of Object.entries(parsed.downloads)) {
@@ -182,6 +193,13 @@ export class ConfigManager implements IConfigManager {
 
     if (config.currentVersion) {
       tomlData.currentVersion = config.currentVersion;
+    }
+
+    if (config.systemZig) {
+      tomlData.systemZig = {
+        path: config.systemZig.path,
+        version: config.systemZig.version
+      };
     }
 
     if (Object.keys(config.downloads).length > 0) {

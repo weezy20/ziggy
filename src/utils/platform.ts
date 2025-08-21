@@ -71,16 +71,21 @@ export class PlatformDetector implements IPlatformDetector {
     
     // Check if ziggy bin directory is already in PATH
     const ziggyBinNormalized = resolve(binDir);
-    let inPath = false;
     
     for (const dir of pathDirs) {
       if (!dir.trim()) continue; // Skip empty entries
       
       try {
         const normalizedDir = resolve(dir.trim());
-        if (normalizedDir === ziggyBinNormalized) {
-          inPath = true;
-          break;
+        // On Windows, paths are case-insensitive, so normalize case for comparison
+        if (this.platform === 'win32') {
+          if (normalizedDir.toLowerCase() === ziggyBinNormalized.toLowerCase()) {
+            return true;
+          }
+        } else {
+          if (normalizedDir === ziggyBinNormalized) {
+            return true;
+          }
         }
       } catch (_error) {
         // Skip invalid paths
@@ -88,43 +93,6 @@ export class PlatformDetector implements IPlatformDetector {
       }
     }
     
-    // If not in PATH, definitely not configured
-    if (!inPath) {
-      return false;
-    }
-    
-    // Additional verification: check if zig command is accessible and from ziggy
-    try {
-      const which = this.platform === 'win32' ? 'where' : 'which';
-      const result = Bun.spawnSync([which, 'zig'], { 
-        stdout: 'pipe',
-        stderr: 'pipe'
-      });
-      
-      if (result.exitCode === 0) {
-        const zigPath = result.stdout.toString().trim();
-        // Handle multiple paths returned by which/where
-        const firstZigPath = zigPath.split('\n')[0]?.trim() || zigPath;
-        
-        // Check if the found zig is from ziggy's bin directory
-        const ziggyZigPath = join(binDir, this.platform === 'win32' ? 'zig.exe' : 'zig');
-        
-        try {
-          const resolvedZigPath = resolve(firstZigPath);
-          const resolvedZiggyPath = resolve(ziggyZigPath);
-          return resolvedZigPath === resolvedZiggyPath;
-        } catch (_error) {
-          // If path resolution fails, fall back to string comparison
-          return firstZigPath.includes(binDir) || firstZigPath.startsWith(ziggyBinNormalized);
-        }
-      }
-    } catch (_error) {
-      // If we can't run which/where, assume it's configured if in PATH
-      return inPath;
-    }
-    
-    // If we get here, ziggy/bin is in PATH but zig command is not accessible
-    // This might happen if the symlink is missing or broken
     return false;
   }
 

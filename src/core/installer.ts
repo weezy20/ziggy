@@ -126,13 +126,63 @@ export class ZigInstaller implements IZigInstaller {
     const config = this.configManager.load();
 
     if (version === 'system') {
-      // Use system zig
+      // Use system zig - validate it's still available
       if (config.systemZig) {
-        this.createSymlink(config.systemZig.path, 'system');
-        this.versionManager.setCurrentVersion('system');
-        log(colors.green(`Now using system Zig ${config.systemZig.version}`));
+        // Check if the system Zig path is still valid
+        if (!this.fileSystemManager.fileExists(config.systemZig.path)) {
+          log(colors.yellow('⚠ System Zig is no longer available at the configured path.'));
+          log(colors.gray(`Previous path: ${config.systemZig.path}`));
+          
+          // Remove invalid system Zig from config
+          const updatedConfig = { ...config };
+          delete updatedConfig.systemZig;
+          // Also clear currentVersion if it was set to system
+          if (updatedConfig.currentVersion === 'system') {
+            delete updatedConfig.currentVersion;
+          }
+          this.configManager.save(updatedConfig);
+          
+          // Try to re-detect system Zig
+          log(colors.cyan('🔍 Re-scanning for system Zig installations...'));
+          const redetectedSystemZig = this.detectSystemZig();
+          
+          if (redetectedSystemZig) {
+            const finalConfig = this.configManager.load();
+            finalConfig.systemZig = redetectedSystemZig;
+            this.configManager.save(finalConfig);
+            
+            log(colors.green(`✓ Found system Zig at: ${redetectedSystemZig.path}`));
+            this.createSymlink(redetectedSystemZig.path, 'system');
+            this.versionManager.setCurrentVersion('system');
+            log(colors.green(`Now using system Zig ${redetectedSystemZig.version}`));
+          } else {
+            log(colors.red('❌ No system Zig installation found.'));
+            this.showAvailableVersions(config);
+          }
+        } else {
+          // System Zig path is still valid
+          this.createSymlink(config.systemZig.path, 'system');
+          this.versionManager.setCurrentVersion('system');
+          log(colors.green(`Now using system Zig ${config.systemZig.version}`));
+        }
       } else {
-        throw new Error('No system Zig installation found');
+        // No system Zig in config, try to detect
+        log(colors.cyan('🔍 Scanning for system Zig installations...'));
+        const detectedSystemZig = this.detectSystemZig();
+        
+        if (detectedSystemZig) {
+          const updatedConfig = { ...config };
+          updatedConfig.systemZig = detectedSystemZig;
+          this.configManager.save(updatedConfig);
+          
+          log(colors.green(`✓ Found system Zig at: ${detectedSystemZig.path}`));
+          this.createSymlink(detectedSystemZig.path, 'system');
+          this.versionManager.setCurrentVersion('system');
+          log(colors.green(`Now using system Zig ${detectedSystemZig.version}`));
+        } else {
+          log(colors.red('❌ No system Zig installation found.'));
+          this.showAvailableVersions(config);
+        }
       }
     } else {
       // Use ziggy managed version
@@ -145,8 +195,6 @@ export class ZigInstaller implements IZigInstaller {
       this.versionManager.setCurrentVersion(version);
       log(colors.green(`Now using Zig ${version}`));
     }
-
-    this.configManager.save(config);
   }
 
   /**
@@ -425,13 +473,14 @@ export class ZigInstaller implements IZigInstaller {
     // Determine the actual zig binary path
     let zigBinary: string;
     let symlinkTarget: string;
+    const executableName = this.platform === 'windows' ? 'zig.exe' : 'zig';
 
     if (version === 'system') {
       // For system installations, targetPath is the direct path to zig binary
       symlinkTarget = targetPath;
     } else {
       // For ziggy managed installations, find the zig binary in the installation
-      zigBinary = join(targetPath, 'zig');
+      zigBinary = join(targetPath, executableName);
       
       if (this.fileSystemManager.fileExists(zigBinary)) {
         symlinkTarget = zigBinary;
@@ -443,7 +492,7 @@ export class ZigInstaller implements IZigInstaller {
         );
 
         if (zigExtraction) {
-          symlinkTarget = join(targetPath, zigExtraction, 'zig');
+          symlinkTarget = join(targetPath, zigExtraction, executableName);
         } else {
           throw new Error(`Zig binary not found in ${targetPath}`);
         }
@@ -451,7 +500,7 @@ export class ZigInstaller implements IZigInstaller {
     }
 
     // Create symlink
-    const zigBinaryLink = join(this.binDir, 'zig');
+    const zigBinaryLink = join(this.binDir, executableName);
     
     // Remove existing symlink if it exists
     this.fileSystemManager.safeRemove(zigBinaryLink);
@@ -461,6 +510,63 @@ export class ZigInstaller implements IZigInstaller {
       this.fileSystemManager.createSymlink(symlinkTarget, zigBinaryLink, this.platform);
     } catch (error) {
       throw new Error(`Failed to create symlink: ${error}`);
+    }
+  }
+
+  /**
+   * Detect system Zig installation
+   * @private
+   */
+  private detectSystemZig(): { path: string; version: string } | null {
+    try {
+      const which = this.platform === 'windows' ? 'where' : 'which';
+      const result = Bun.spawnSync([which, 'zig'], { 
+        stdout: 'pipe',
+        stderr: 'pipe'
+      });
+      
+      if (result.exitCode === 0) {
+        const zigPath = result.stdout.toString().trim();
+        // Handle multiple paths returned by which/where
+        const firstZigPath = zigPath.split('\n')[0]?.trim() || zigPath;
+        
+        // Make sure it's not from ziggy directory
+        if (!firstZigPath.includes(this.ziggyDir)) {
+          // Get version
+          const versionResult = Bun.spawnSync([firstZigPath, 'version'], { stdout: 'pipe' });
+          if (versionResult.exitCode === 0) {
+            const version = versionResult.stdout.toString().trim();
+            return { path: firstZigPath, version };
+          }
+        }
+      }
+    } catch (_error) {
+      // System zig not found or not accessible
+    }
+    
+    return null;
+  }
+
+  /**
+   * Show available versions when system Zig is not found
+   * @private
+   */
+  private showAvailableVersions(config: any): void {
+    const installedVersions = Object.keys(config.downloads).filter(v => 
+      config.downloads[v].status === 'completed'
+    );
+    
+    if (installedVersions.length > 0) {
+      log(colors.cyan('\n📦 Available Zig versions:'));
+      installedVersions.forEach(version => {
+        const isCurrent = config.currentVersion === version;
+        const indicator = isCurrent ? colors.green(' ← current') : '';
+        log(colors.gray(`  • ${version}${indicator}`));
+      });
+      log(colors.yellow('\nUse `ziggy use <version>` to switch to an installed version.'));
+    } else {
+      log(colors.yellow('\n📭 No Zig versions installed yet.'));
+      log(colors.cyan('Use `ziggy` to install a Zig version.'));
     }
   }
 }

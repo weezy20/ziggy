@@ -13,6 +13,7 @@ import { useCommand } from './commands/use';
 import { PlatformDetector } from './utils/platform';
 import { FileSystemManager } from './utils/filesystem';
 import { ArchiveExtractor } from './utils/archive';
+import { SpinnerProgressReporter } from './utils/progress';
 import { ConfigManager } from './core/config';
 import { VersionManager } from './core/version';
 import { ZigInstaller as CoreZigInstaller } from './core/installer';
@@ -88,7 +89,8 @@ export class ZigInstaller {
   constructor() {
     this.platformDetector = new PlatformDetector();
     this.fileSystemManager = new FileSystemManager();
-    this.archiveExtractor = new ArchiveExtractor(this.fileSystemManager);
+    const progressReporter = new SpinnerProgressReporter();
+    this.archiveExtractor = new ArchiveExtractor(this.fileSystemManager, progressReporter);
     this.arch = this.platformDetector.getArch();
     this.platform = this.platformDetector.getPlatform();
     this.os = this.platformDetector.getOS();
@@ -114,6 +116,9 @@ export class ZigInstaller {
     // Initialize VersionManager
     this.versionManager = new VersionManager(this.configManager, this.arch, this.platform);
     
+    // Detect system Zig before creating core installer
+    this.detectSystemZig();
+    
     // Initialize Core Installer with dependency injection
     this.coreInstaller = new CoreZigInstaller(
       this.configManager,
@@ -124,7 +129,6 @@ export class ZigInstaller {
       this.ziggyDir
     );
     
-    this.detectSystemZig();
     this.cleanupIncompleteDownloads();
   }
 
@@ -137,6 +141,8 @@ export class ZigInstaller {
         if (versionResult.exitCode === 0) {
           const version = versionResult.stdout.toString().trim();
           this.config.systemZig = { path: zigPath, version };
+          // Save the config so other components can access system Zig info
+          this.configManager.save(this.config);
         }
       }
     } catch (_error) {
@@ -1599,10 +1605,18 @@ export PATH="${this.binDir}:$PATH"
 
     // Check if env file exists but PATH is not configured
     if (this.platformDetector.hasEnvFileConfigured(this.envPath)) {
+      // Env file exists but ziggy is not configured in PATH
       log(colors.yellow('\n📋 Environment file exists but PATH needs to be configured:'));
       log(colors.cyan('To activate Zig in your current session, run:'));
-      const ziggyDirVar = process.env.ZIGGY_DIR ? '$ZIGGY_DIR' : '$HOME/.ziggy';
-      log(colors.green(`source ${ziggyDirVar}/env`));
+      
+      // Platform-specific source command
+      if (this.platform === 'windows') {
+        log(colors.green(`. "${this.envPath}"`));
+      } else {
+        const ziggyDirVar = process.env.ZIGGY_DIR ? '$ZIGGY_DIR' : '$HOME/.ziggy';
+        log(colors.green(`source ${ziggyDirVar}/env`));
+      }
+      
       log(colors.gray('\nTo make this permanent, add the source command to your shell profile.'));
       return;
     }
