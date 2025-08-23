@@ -13,6 +13,7 @@ import {
   validateLength,
   validatePattern
 } from '../../../../src/cli/prompts/validators';
+import process from "node:process";
 
 describe('validators', () => {
   beforeEach(() => {

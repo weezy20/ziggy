@@ -5,6 +5,7 @@ import type { ZiggyConfig } from '../../types';
 import type { FileSystemManager } from '../../utils/filesystem';
 import type { VersionManager } from '../../core/version';
 import type { ConfigManager } from '../../core/config';
+import process from "node:process";
 
 export const log = console.log;
 

@@ -59,9 +59,9 @@ export interface IFileSystemManager {
   writeFile(path: string, content: string): void;
   readFile(path: string): string;
   appendFile(path: string, content: string): void;
-  createWriteStream(path: string): any;
-  createReadStream(path: string): any;
-  getStats(path: string): any;
+  createWriteStream(path: string): NodeJS.WritableStream;
+  createReadStream(path: string): NodeJS.ReadableStream;
+  getStats(path: string): { size: number; isFile(): boolean; isDirectory(): boolean };
   listDirectory(path: string): string[];
   isDirectory(path: string): boolean;
   isFile(path: string): boolean;

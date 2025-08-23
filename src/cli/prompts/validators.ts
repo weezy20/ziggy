@@ -5,6 +5,7 @@
 /**
  * Validate project name input
  */
+import process from "node:process";
 export function validateProjectName(value: string): string | undefined {
   if (!value || value.trim().length === 0) {
     return 'Project name is required';
@@ -88,8 +89,10 @@ export function validatePath(value: string): string | undefined {
   // Check for invalid characters (platform-specific)
   // On Windows, exclude colon from invalid chars for drive letters (C:\)
   const invalidChars = process.platform === 'win32' 
-    ? /[<>"|?*\x00-\x1f]/
-    : /[\x00]/;
+    // deno-lint-ignore no-control-regex
+    ? /[<>"|?*\u0000-\u001f]/
+    // deno-lint-ignore no-control-regex
+    : /[\u0000]/;
 
   if (invalidChars.test(trimmed)) {
     return 'Path contains invalid characters';
@@ -115,8 +118,10 @@ export function validateDirectoryName(value: string): string | undefined {
 
   // Check for valid characters
   const invalidChars = process.platform === 'win32'
-    ? /[<>:"|?*\x00-\x1f\\\/]/
-    : /[\x00\/]/;
+    // deno-lint-ignore no-control-regex
+    ? /[<>:"|?*\u0000-\u001f\\\/]/
+    // deno-lint-ignore no-control-regex
+    : /[\u0000\/]/;
 
   if (invalidChars.test(trimmed)) {
     return 'Directory name contains invalid characters';

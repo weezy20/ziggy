@@ -6,6 +6,7 @@
 import { resolve, join } from 'path';
 import { existsSync } from 'fs';
 import type { ShellInfo } from '../types.js';
+import process from "node:process";
 
 export interface IPlatformDetector {
   getArch(): string;

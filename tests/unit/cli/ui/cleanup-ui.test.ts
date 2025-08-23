@@ -44,7 +44,7 @@ describe('CleanupUI', () => {
     } as ConfigManager;
 
     mockCreateSymlink = () => {};
-    mockShowPostActionOptions = async () => 'main-menu';
+    mockShowPostActionOptions = () => Promise.resolve('main-menu');
     mockReloadConfig = () => {};
 
     cleanupUI = new CleanupUI(

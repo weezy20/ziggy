@@ -2,10 +2,11 @@
  * Unit tests for FileSystemManager
  */
 
-import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { join } from 'path';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { FileSystemManager, FileSystemError, DirectoryError, FileError, SymlinkError } from '../../../src/utils/filesystem';
+import process from "node:process";
 
 describe('FileSystemManager', () => {
   let fsManager: FileSystemManager;

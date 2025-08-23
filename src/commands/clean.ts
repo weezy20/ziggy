@@ -1,7 +1,7 @@
 import * as clack from '@clack/prompts';
 import { selectCleanupAction, showNote } from '../cli/prompts/common.js';
 import type { IZigInstaller, IConfigManager } from '../interfaces.js';
-import type { ZiggyConfig } from '../types.js';
+// import type { ZiggyConfig } from '../types.js';
 
 /**
  * Clean command - cleanup Zig installations
@@ -47,13 +47,13 @@ export async function cleanCommand(installer?: IZigInstaller, configManager?: IC
 
   switch (action) {
     case 'clean-all':
-      await (installer as any).cleanAllVersions();
+      await (installer as { cleanAllVersions(): Promise<void> }).cleanAllVersions();
       break;
     case 'clean-except-current':
-      await (installer as any).cleanExceptCurrent();
+      await (installer as { cleanExceptCurrent(): Promise<void> }).cleanExceptCurrent();
       break;
     case 'select-keep':
-      await (installer as any).selectVersionToKeep();
+      await (installer as { selectVersionToKeep(): Promise<void> }).selectVersionToKeep();
       break;
   }
 }

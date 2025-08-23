@@ -3,6 +3,7 @@ import { colors } from '../utils/colors';
 import { selectPrompt, confirmPrompt } from '../cli/prompts/common.js';
 import type { IZigInstaller, IConfigManager, IVersionManager } from '../interfaces.js';
 import type { ZiggyConfig } from '../types.js';
+import process from "node:process";
 
 const log = console.log;
 
@@ -27,7 +28,7 @@ export async function useCommand(
     const app = await createApplication();
     installer = app;
     configManager = app.getConfigManager();
-    versionManager = configManager as any; // Type assertion for backward compatibility
+    versionManager = configManager as IVersionManager; // Type assertion for backward compatibility
   }
   
   const config = configManager.load();

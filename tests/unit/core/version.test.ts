@@ -2,7 +2,7 @@
  * Unit tests for VersionManager
  */
 
-import { describe, it, expect, beforeEach, mock, spyOn } from 'bun:test';
+import { describe, it, expect, beforeEach, mock as _mock, spyOn } from 'bun:test';
 import { VersionManager } from '../../../src/core/version.js';
 import type { IConfigManager } from '../../../src/interfaces.js';
 import type { ZiggyConfig, ZigVersions, ZigDownloadIndex } from '../../../src/types.js';
@@ -50,14 +50,14 @@ describe('VersionManager', () => {
     it('should fetch and return available versions excluding master', async () => {
       const mockResponse = {
         ok: true,
-        json: async () => ({
+        json: () => Promise.resolve({
           'master': { version: 'master', date: '2024-01-01', tarball: 'url' },
           '0.12.0': { version: '0.12.0', date: '2024-01-01', tarball: 'url' },
           '0.11.0': { version: '0.11.0', date: '2023-12-01', tarball: 'url' }
         } as ZigVersions)
       };
 
-      const fetchSpy = spyOn(global, 'fetch').mockResolvedValue(mockResponse as any);
+      const fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(mockResponse as Response);
 
       const versions = await versionManager.getAvailableVersions();
 
@@ -67,7 +67,7 @@ describe('VersionManager', () => {
     });
 
     it('should return fallback versions on fetch error', async () => {
-      const fetchSpy = spyOn(global, 'fetch').mockRejectedValue(new Error('Network error'));
+      const fetchSpy = spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Network error'));
       const consoleSpy = spyOn(console, 'error').mockImplementation(() => {});
 
       const versions = await versionManager.getAvailableVersions();
@@ -79,7 +79,7 @@ describe('VersionManager', () => {
 
     it('should return fallback versions on HTTP error', async () => {
       const mockResponse = { ok: false, status: 404 };
-      const fetchSpy = spyOn(global, 'fetch').mockResolvedValue(mockResponse as any);
+      const fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(mockResponse as Response);
       const consoleSpy = spyOn(console, 'error').mockImplementation(() => {});
 
       const versions = await versionManager.getAvailableVersions();
@@ -94,7 +94,7 @@ describe('VersionManager', () => {
     it('should return true for valid version with platform support', async () => {
       const mockResponse = {
         ok: true,
-        json: async () => ({
+        json: () => Promise.resolve({
           '0.12.0': {
             'x86_64-linux': {
               tarball: 'https://example.com/zig.tar.xz',
@@ -105,7 +105,7 @@ describe('VersionManager', () => {
         } as ZigDownloadIndex)
       };
 
-      const fetchSpy = spyOn(global, 'fetch').mockResolvedValue(mockResponse as any);
+      const fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(mockResponse as Response);
 
       const isValid = await versionManager.validateVersion('0.12.0');
 
@@ -116,7 +116,7 @@ describe('VersionManager', () => {
     it('should return false for non-existent version', async () => {
       const mockResponse = {
         ok: true,
-        json: async () => ({
+        json: () => Promise.resolve({
           '0.11.0': {
             'x86_64-linux': {
               tarball: 'https://example.com/zig.tar.xz',
@@ -127,7 +127,7 @@ describe('VersionManager', () => {
         } as ZigDownloadIndex)
       };
 
-      const fetchSpy = spyOn(global, 'fetch').mockResolvedValue(mockResponse as any);
+      const fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(mockResponse as Response);
 
       const isValid = await versionManager.validateVersion('0.12.0');
 
@@ -137,7 +137,7 @@ describe('VersionManager', () => {
 
     it('should return false on HTTP error', async () => {
       const mockResponse = { ok: false, status: 404 };
-      const fetchSpy = spyOn(global, 'fetch').mockResolvedValue(mockResponse as any);
+      const fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(mockResponse as Response);
 
       const isValid = await versionManager.validateVersion('invalid-version');
 
@@ -146,7 +146,7 @@ describe('VersionManager', () => {
     });
 
     it('should return false on fetch error', async () => {
-      const fetchSpy = spyOn(global, 'fetch').mockRejectedValue(new Error('Network error'));
+      const fetchSpy = spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Network error'));
 
       const isValid = await versionManager.validateVersion('0.12.0');
 
@@ -211,14 +211,14 @@ describe('VersionManager', () => {
     it('should return the first non-master version', async () => {
       const mockResponse = {
         ok: true,
-        json: async () => ({
+        json: () => Promise.resolve({
           'master': { version: 'master', date: '2024-01-01', tarball: 'url' },
           '0.12.0': { version: '0.12.0', date: '2024-01-01', tarball: 'url' },
           '0.11.0': { version: '0.11.0', date: '2023-12-01', tarball: 'url' }
         } as ZigVersions)
       };
 
-      const fetchSpy = spyOn(global, 'fetch').mockResolvedValue(mockResponse as any);
+      const fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(mockResponse as Response);
 
       const latestVersion = await versionManager.getLatestStableVersion();
 
@@ -227,7 +227,7 @@ describe('VersionManager', () => {
     });
 
     it('should return fallback version on error', async () => {
-      const fetchSpy = spyOn(global, 'fetch').mockRejectedValue(new Error('Network error'));
+      const fetchSpy = spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Network error'));
 
       const latestVersion = await versionManager.getLatestStableVersion();
 

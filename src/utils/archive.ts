@@ -9,6 +9,7 @@ import { extract as extractZipLib } from 'zip-lib';
 import type { IArchiveExtractor, IFileSystemManager, IProgressReporter } from '../interfaces.js';
 import { colors } from './colors.js';
 import { PerformanceMonitor, MemoryOptimizer } from './performance.js';
+import { Buffer } from "node:buffer";
 
 export class ArchiveExtractor implements IArchiveExtractor {
     constructor(

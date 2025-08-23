@@ -6,6 +6,8 @@ import { cleanCommand } from './commands/clean';
 import { setupCommand } from './commands/setup';
 import { statsCommand } from './commands/stats';
 import { colors } from './utils/colors';
+import type { IVersionManager, IPlatformDetector } from './interfaces';
+import process from "node:process";
 
 export function setupCLI(): Command {
   const program = new Command();
@@ -39,7 +41,7 @@ export function setupCLI(): Command {
         const { createApplication } = await import('./index');
         const installer = await createApplication();
         const configManager = installer.getConfigManager();
-        await useCommand(false, version, installer, configManager, configManager as any);
+        await useCommand(false, version, installer, configManager, configManager as IVersionManager);
       } catch (error) {
         console.error(colors.red('Error:'), error);
         process.exit(1);
@@ -55,7 +57,7 @@ export function setupCLI(): Command {
         const { createApplication } = await import('./index');
         const installer = await createApplication();
         const configManager = installer.getConfigManager();
-        await listCommand(configManager, configManager as any);
+        await listCommand(configManager, configManager as IVersionManager);
       } catch (error) {
         console.error(colors.red('Error:'), error);
         process.exit(1);
@@ -86,8 +88,8 @@ export function setupCLI(): Command {
       try {
         const { createApplication } = await import('./index');
         const installer = await createApplication();
-        const platformDetector = (installer as any).platformDetector;
-        const envPath = (installer as any).envPath;
+        const platformDetector = (installer as { platformDetector: IPlatformDetector }).platformDetector;
+        const envPath = (installer as { envPath: string }).envPath;
         await setupCommand(platformDetector, envPath);
       } catch (error) {
         console.error(colors.red('Error:'), error);

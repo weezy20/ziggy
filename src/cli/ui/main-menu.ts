@@ -1,11 +1,12 @@
 import * as clack from '@clack/prompts';
 import { colors } from '../../utils/colors';
 import { ZIG_ASCII_ART } from '../../ascii-art';
-import type { ZiggyConfig, ShellInfo } from '../../types';
+import type { ZiggyConfig } from '../../types';
 import type { PlatformDetector } from '../../utils/platform';
 import type { FileSystemManager } from '../../utils/filesystem';
 import type { VersionManager } from '../../core/version';
 import type { ConfigManager } from '../../core/config';
+import process from "node:process";
 
 export const log = console.log;
 

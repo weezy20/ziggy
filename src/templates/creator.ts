@@ -7,6 +7,7 @@ import { extract as extractZip } from 'zip-lib';
 import type { IProjectCreator, IFileSystemManager } from '../interfaces.js';
 import type { TemplateManager, TemplateInfo } from './manager.js';
 import { colors } from '../utils/colors.js';
+import process from "node:process";
 
 export class ProjectCreator implements IProjectCreator {
   constructor(
@@ -41,7 +42,7 @@ export class ProjectCreator implements IProjectCreator {
     await this.initializeProject(absolutePath);
   }
 
-  private async createLeanProject(
+  private createLeanProject(
     projectName: string,
     targetPath: string,
     onProgress?: (message: string) => void
@@ -142,7 +143,7 @@ zig build test
 
   private async createFromRemoteTemplate(
     template: TemplateInfo,
-    projectName: string,
+    _projectName: string,
     targetPath: string,
     onProgress?: (message: string) => void
   ): Promise<void> {
@@ -267,7 +268,7 @@ zig build test
     }
   }
 
-  public async initializeProject(projectPath: string): Promise<void> {
+  public async initializeProject(_projectPath: string): Promise<void> {
     // Additional initialization steps can be added here
     // For now, this is a placeholder for future enhancements
     // such as git initialization, dependency setup, etc.

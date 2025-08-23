@@ -4,10 +4,12 @@
 
 import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
 import { PlatformDetector } from '../../../src/utils/platform.js';
-import type { ShellInfo } from '../../../src/types.js';
+import type { ShellInfo as _ShellInfo } from '../../../src/types.js';
+import { Buffer } from "node:buffer";
+import process from "node:process";
 
 describe('PlatformDetector', () => {
-  let platformDetector: PlatformDetector;
+  let _platformDetector: PlatformDetector;
   let originalPlatform: string;
   let originalArch: string;
   let originalEnv: NodeJS.ProcessEnv;

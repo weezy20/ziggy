@@ -1,13 +1,13 @@
 #!/usr/bin/env bun
 
-import { ZIG_ASCII_ART } from './ascii-art';
+// import { ZIG_ASCII_ART } from './ascii-art';
 import { join, resolve, dirname } from 'path';
 import * as clack from '@clack/prompts';
 import which from 'which';
 import { colors } from './utils/colors';
 import { setupCLI } from './cli';
 import { useCommand } from './commands/use';
-import { PerformanceMonitor, MemoryOptimizer } from './utils/performance';
+import { PerformanceMonitor } from './utils/performance';
 
 // Lazy loading imports - modules are loaded only when needed
 // Core modules are loaded immediately as they're always needed
@@ -46,12 +46,13 @@ import type {
   IProgressReporter,
   IMirrorsManager
 } from './interfaces';
-import type { ZigDownloadIndex, DownloadStatus, ZiggyConfig } from './types';
+import type { ZiggyConfig } from './types';
 import type { CleanupUI } from './cli/ui/cleanup-ui.js';
 import type { DownloadUI } from './cli/ui/download-ui.js';
 import type { VersionSelectorUI } from './cli/ui/version-selector.js';
 import type { MainMenuUI } from './cli/ui/main-menu.js';
 import type { ProjectUI } from './cli/ui/project-ui.js';
+import process from "node:process";
 
 export const log = console.log;
 
@@ -62,9 +63,9 @@ export const log = console.log;
  */
 class DependencyContainer {
   private static instance: DependencyContainer;
-  private dependencies: Map<string, any> = new Map();
-  private singletons: Map<string, any> = new Map();
-  private lazyFactories: Map<string, () => Promise<any>> = new Map();
+  private dependencies: Map<string, unknown> = new Map();
+  private singletons: Map<string, unknown> = new Map();
+  private lazyFactories: Map<string, () => Promise<unknown>> = new Map();
 
   private constructor() {}
 
@@ -556,72 +557,9 @@ export class ZigInstaller {
     }
   }
 
-  private createSymlink(targetPath: string, version: string) {
-    const zigBinaryName = this.platform === 'windows' ? 'zig.exe' : 'zig';
-    const zigBinary = join(this.binDir, zigBinaryName);
 
-    // Create new symlink
-    try {
-      let symlinkTarget;
 
-      if (version === 'system') {
-        // For system zig, use the direct path to the binary
-        symlinkTarget = targetPath;
-      } else {
-        // For ziggy-managed versions, find the actual zig binary
-        // First check if zig binary is directly in the path
-        const zigBinaryName = this.platform === 'windows' ? 'zig.exe' : 'zig';
-        const directZigPath = join(targetPath, zigBinaryName);
-        if (this.fileSystemManager.fileExists(directZigPath)) {
-          symlinkTarget = directZigPath;
-        } else {
-          // Fallback: look for extracted directory structure
-          const extractedDirName = `zig-${this.arch}-${this.platform}-${version}`;
-          symlinkTarget = join(targetPath, extractedDirName, zigBinaryName);
-        }
-      }
 
-      log(colors.gray(`Creating symlink: ${zigBinary} -> ${symlinkTarget}`));
-
-      // Create symlink using FileSystemManager
-      this.fileSystemManager.createSymlink(symlinkTarget, zigBinary, this.platform);
-      
-      this.versionManager.setCurrentVersion(version);
-      log(colors.green(`✓ Symlinked ${version} to ${zigBinary}`));
-    } catch (error) {
-      console.error(colors.red('Error creating symlink:'), error);
-    }
-  }
-
-  private createEnvFile() {
-    let envContent: string;
-    let instructions: string;
-
-    if (this.platform === 'windows') {
-      // PowerShell script for Windows
-      envContent = `# Ziggy Environment for PowerShell
-# Add this line to your PowerShell profile:
-# . "${this.envPath.replace(/\\/g, '\\\\')}"
-
-$env:PATH = "${this.binDir.replace(/\\/g, '\\\\')};" + $env:PATH
-`;
-      instructions = `Add this to your PowerShell profile:\n. "${this.envPath}"`;
-    } else {
-      // Bash/Zsh script for Unix-like systems
-      envContent = `# Ziggy Environment
-# Add this line to your shell profile (.bashrc, .zshrc, etc.):
-# source "${this.envPath}"
-
-export PATH="${this.binDir}:$PATH"
-`;
-      instructions = `Add this to your shell profile:\nsource "${this.envPath}"`;
-    }
-
-    this.fileSystemManager.writeFile(this.envPath, envContent);
-    log(colors.green(`✓ Created env file at ${this.envPath}`));
-    log(colors.yellow(`\nTo use ziggy-managed Zig versions:`));
-    log(colors.cyan(instructions));
-  }
 
 
 
@@ -740,9 +678,7 @@ export PATH="${this.binDir}:$PATH"
     return changes;
   }
 
-  private async getLatestStableVersion(): Promise<string> {
-    return this.versionManager.getLatestStableVersion();
-  }
+
 
   private async validateInstallPath(userPath: string): Promise<string> {
     // First expand ~ to home directory if present
@@ -800,44 +736,7 @@ export PATH="${this.binDir}:$PATH"
     }
   }
 
-  private displayHeaderWithInfo(): void {
-    // Split ASCII art into lines
-    const asciiLines = ZIG_ASCII_ART.trim().split('\n');
 
-    // Prepare system info lines
-    const shellInfo = this.platformDetector.getShellInfo();
-    const systemInfo = [
-      `Architecture: ${colors.cyan(this.arch)}`,
-      `Platform: ${colors.cyan(this.platform)}`,
-      `OS: ${colors.cyan(this.os)}`,
-      `Ziggy directory: ${colors.cyan(this.ziggyDir)}`,
-      `Shell: ${colors.cyan(shellInfo.shell)}`,
-      `Profile: ${colors.cyan(shellInfo.profileFile)}`
-    ];
-
-    // Find the longest ASCII line to determine padding
-    const maxAsciiWidth = Math.max(...asciiLines.map(line => line.length));
-    const padding = 4; // Space between ASCII and info
-
-    // Display ASCII art with system info side by side
-    const maxLines = Math.max(asciiLines.length, systemInfo.length);
-
-    for (let i = 0; i < maxLines; i++) {
-      const asciiLine = asciiLines[i] || '';
-      const infoLine = systemInfo[i] || '';
-
-      // Pad ASCII line to consistent width
-      const paddedAscii = asciiLine.padEnd(maxAsciiWidth);
-
-      if (infoLine) {
-        log(colors.yellow(paddedAscii) + ' '.repeat(padding) + colors.yellow(infoLine));
-      } else {
-        log(colors.yellow(paddedAscii));
-      }
-    }
-
-    log(''); // Add spacing after header
-  }
 
   private async runTUI(): Promise<void> {
     // Delegate to MainMenuUI
@@ -1057,7 +956,7 @@ export PATH="${this.binDir}:$PATH"
  * Application Entry Point
  * Creates the application using dependency injection and starts the CLI
  */
-export async function createApplication(): Promise<ZigInstaller> {
+export function createApplication(): Promise<ZigInstaller> {
   const factory = new ApplicationFactory();
   const installer = factory.createZigInstaller();
   

@@ -54,12 +54,12 @@ export class TemplateManager implements ITemplateManager {
     return this.templates.has(templateName);
   }
 
-  public async createProject(templateName: string, projectName: string, targetPath: string): Promise<void> {
+  public createProject(templateName: string, _projectName: string, _targetPath: string): Promise<void> {
     if (!this.validateTemplate(templateName)) {
       throw new Error(`Template '${templateName}' not found`);
     }
 
-    const template = this.templates.get(templateName)!;
+    const _template = this.templates.get(templateName)!;
     
     // This method delegates to the ProjectCreator
     // The actual implementation will be handled by the ProjectCreator class

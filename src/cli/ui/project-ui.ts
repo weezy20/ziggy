@@ -9,6 +9,7 @@ import { ProjectCreator } from '../../templates/creator.js';
 import { colors } from '../../utils/colors.js';
 import type { IFileSystemManager, IVersionManager } from '../../interfaces.js';
 import type { ZiggyConfig } from '../../types.js';
+import process from "node:process";
 
 const log = console.log;
 

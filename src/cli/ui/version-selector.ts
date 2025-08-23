@@ -2,6 +2,7 @@ import * as clack from '@clack/prompts';
 import { colors } from '../../utils/colors';
 import type { ZiggyConfig } from '../../types';
 import type { VersionManager } from '../../core/version';
+import process from "node:process";
 
 export const log = console.log;
 

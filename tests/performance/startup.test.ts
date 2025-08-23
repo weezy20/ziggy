@@ -5,6 +5,7 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { ApplicationFactory } from '../../src/index';
 import { PerformanceMonitor, MemoryOptimizer } from '../../src/utils/performance';
+import process from "node:process";
 
 describe('Startup Performance', () => {
   let monitor: PerformanceMonitor;
@@ -15,7 +16,7 @@ describe('Startup Performance', () => {
     monitor.enable();
   });
 
-  it('should have fast startup time with lazy loading', async () => {
+  it('should have fast startup time with lazy loading', () => {
     const startTime = performance.now();
     
     // Create factory (should be fast)
@@ -23,7 +24,7 @@ describe('Startup Performance', () => {
     const factoryTime = performance.now();
     
     // Create installer (should be fast due to lazy loading)
-    const installer = factory.createZigInstaller();
+    const _installer = factory.createZigInstaller();
     const installerTime = performance.now();
     
     const totalTime = installerTime - startTime;
@@ -42,7 +43,7 @@ describe('Startup Performance', () => {
 
   it('should have reasonable memory usage', () => {
     const factory = new ApplicationFactory();
-    const installer = factory.createZigInstaller();
+    const _installer = factory.createZigInstaller();
     
     const memUsage = process.memoryUsage();
     const heapMB = memUsage.heapUsed / 1024 / 1024;
@@ -55,7 +56,7 @@ describe('Startup Performance', () => {
 
   it('should cache platform detection results', () => {
     const factory = new ApplicationFactory();
-    const installer = factory.createZigInstaller();
+    const _installer = factory.createZigInstaller();
     
     const container = factory.getContainer();
     const platformDetector = container.resolve('platformDetector');

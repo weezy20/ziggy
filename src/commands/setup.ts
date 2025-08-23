@@ -1,9 +1,10 @@
 import { existsSync, appendFileSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
 import { colors } from '../utils/colors';
-import * as clack from '@clack/prompts';
+// import * as clack from '@clack/prompts';
 import { confirmPrompt, selectPrompt } from '../cli/prompts/common.js';
 import type { IPlatformDetector } from '../interfaces.js';
+import process from "node:process";
 
 const log = console.log;
 
@@ -17,8 +18,8 @@ export async function setupCommand(platformDetector?: IPlatformDetector, envPath
   if (!platformDetector || !envPath) {
     const { createApplication } = await import('../index.js');
     const app = await createApplication();
-    platformDetector = (app as any).platformDetector;
-    envPath = (app as any).envPath;
+    platformDetector = (app as { platformDetector: IPlatformDetector }).platformDetector;
+    envPath = (app as { envPath: string }).envPath;
   }
   
   const platform = platformDetector.getPlatform();
@@ -41,7 +42,7 @@ export async function setupCommand(platformDetector?: IPlatformDetector, envPath
         // Fallback to Windows PowerShell 5.x path
         profilePath = process.env.USERPROFILE + '\\Documents\\WindowsPowerShell\\Microsoft.PowerShell_profile.ps1';
       }
-    } catch (error) {
+    } catch (_error) {
       // Fallback to Windows PowerShell 5.x path
       profilePath = process.env.USERPROFILE + '\\Documents\\WindowsPowerShell\\Microsoft.PowerShell_profile.ps1';
     }
@@ -97,7 +98,7 @@ export async function setupCommand(platformDetector?: IPlatformDetector, envPath
     log(colors.yellow('Setting up shell environment...'));
     
     // Detect current shell
-    const shellInfo = platformDetector.getShellInfo();
+    const _shellInfo = platformDetector.getShellInfo();
     const currentShell = process.env.SHELL?.split('/').pop() || 'bash';
     
     const shellConfigs = [

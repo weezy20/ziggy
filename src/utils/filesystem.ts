@@ -371,7 +371,7 @@ export class FileSystemManager implements IFileSystemManager {
    * @param path - The path to remove
    * @param recursive - Whether to remove directories recursively (default: true)
    */
-  safeRemove(path: string, recursive: boolean = true): void {
+  safeRemove(path: string, _recursive: boolean = true): void {
     try {
       if (existsSync(path)) {
         const stats = statSync(path);

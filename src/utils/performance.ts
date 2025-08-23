@@ -4,6 +4,7 @@
  * Provides tools for measuring and optimizing application performance
  */
 
+import process from "node:process";
 export interface PerformanceMetrics {
   startTime: number;
   endTime?: number;
@@ -109,8 +110,8 @@ export class MemoryOptimizer {
   public static forceGC(): void {
     const memUsage = process.memoryUsage();
     
-    if (memUsage.heapUsed > this.GC_THRESHOLD && global.gc) {
-      global.gc();
+    if (memUsage.heapUsed > this.GC_THRESHOLD && globalThis.gc) {
+      globalThis.gc();
     }
   }
 
@@ -143,10 +144,10 @@ export class MemoryOptimizer {
  * Decorator for measuring function performance
  */
 export function measurePerformance(operation: string) {
-  return function (target: any, propertyName: string, descriptor: PropertyDescriptor) {
+  return function (_target: unknown, _propertyName: string, descriptor: PropertyDescriptor) {
     const method = descriptor.value;
     
-    descriptor.value = async function (...args: any[]) {
+    descriptor.value = async function (...args: unknown[]) {
       const monitor = PerformanceMonitor.getInstance();
       monitor.startTimer(operation);
       
@@ -165,7 +166,7 @@ export function measurePerformance(operation: string) {
 /**
  * Utility for debouncing function calls to improve performance
  */
-export function debounce<T extends (...args: any[]) => any>(
+export function debounce<T extends (...args: unknown[]) => unknown>(
   func: T,
   wait: number
 ): (...args: Parameters<T>) => void {
@@ -180,7 +181,7 @@ export function debounce<T extends (...args: any[]) => any>(
 /**
  * Utility for throttling function calls to improve performance
  */
-export function throttle<T extends (...args: any[]) => any>(
+export function throttle<T extends (...args: unknown[]) => unknown>(
   func: T,
   limit: number
 ): (...args: Parameters<T>) => void {

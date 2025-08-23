@@ -6,7 +6,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { createApplication } from '../../src/index.js';
 import type { ZigInstaller } from '../../src/index.js';
 import { join } from 'path';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync as _writeFileSync } from 'fs';
+import process from "node:process";
 
 describe('Archive Integration', () => {
   let tempDir: string;
@@ -44,7 +45,7 @@ describe('Archive Integration', () => {
   it('should use ArchiveExtractor for file extension detection', async () => {
     // Test that the ZigInstaller can properly handle different archive formats
     // by testing the platform-specific archive extension detection
-    const expectedExtension = zigInstaller.platform === 'windows' ? 'zip' : 'tar.xz';
+    const _expectedExtension = zigInstaller.platform === 'windows' ? 'zip' : 'tar.xz';
     
     // Verify that the platform detection is working correctly
     expect(zigInstaller.platform).toBeDefined();

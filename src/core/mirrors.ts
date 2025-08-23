@@ -4,7 +4,7 @@
  */
 
 import type { IMirrorsManager, IConfigManager } from '../interfaces.js';
-import type { ZiggyConfig } from '../types.js';
+// import type { ZiggyConfig } from '../types.js';
 import { shuffleArray } from '../utils/array.js';
 import { colors } from '../utils/colors.js';
 import { 

@@ -30,8 +30,8 @@ describe('VersionSelectorUI', () => {
       getCurrentVersion: () => '0.11.0'
     } as VersionManager;
 
-    mockGetAvailableVersions = async () => ['0.12.0', '0.11.0', '0.10.0'];
-    mockShowPostActionOptions = async () => 'main-menu';
+    mockGetAvailableVersions = () => Promise.resolve(['0.12.0', '0.11.0', '0.10.0']);
+    mockShowPostActionOptions = () => Promise.resolve('main-menu');
 
     versionSelectorUI = new VersionSelectorUI(
       mockVersionManager,

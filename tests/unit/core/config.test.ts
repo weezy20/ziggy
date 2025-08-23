@@ -2,11 +2,12 @@
  * Unit tests for ConfigManager
  */
 
-import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, mock as _mock } from 'bun:test';
 import { join } from 'path';
 import { ConfigManager } from '../../../src/core/config';
-import type { ZiggyConfig, DownloadStatus } from '../../../src/types';
+import type { ZiggyConfig, DownloadStatus as _DownloadStatus } from '../../../src/types';
 import type { IFileSystemManager } from '../../../src/interfaces';
+import process from "node:process";
 
 // Mock FileSystemManager
 class MockFileSystemManager implements IFileSystemManager {
@@ -53,7 +54,7 @@ class MockFileSystemManager implements IFileSystemManager {
     this.directories.delete(path);
   }
 
-  createSymlink(target: string, link: string, platform: string): void {
+  createSymlink(_target: string, _link: string, _platform: string): void {
     // Mock implementation
   }
 

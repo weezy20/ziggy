@@ -8,6 +8,7 @@ import { parse, stringify } from 'smol-toml';
 import type { ZiggyConfig, DownloadStatus } from '../types';
 import type { IConfigManager, IFileSystemManager } from '../interfaces';
 import { CONFIG_VERSION } from '../constants';
+import process from "node:process";
 
 export class ConfigManager implements IConfigManager {
   private configPath: string;
@@ -78,7 +79,7 @@ export class ConfigManager implements IConfigManager {
           this.save(migratedConfig);
           return migratedConfig;
         }
-      } catch (migrationError) {
+      } catch (_migrationError) {
         console.warn('Could not migrate legacy config format');
       }
       
@@ -128,7 +129,7 @@ export class ConfigManager implements IConfigManager {
         const fullPath = join(versionsDir, dir);
         return this.fileSystemManager.isDirectory(fullPath);
       });
-    } catch (error) {
+    } catch (_error) {
       return config;
     }
 
@@ -161,7 +162,7 @@ export class ConfigManager implements IConfigManager {
                 break;
               }
             }
-          } catch (error) {
+          } catch (_error) {
             // Continue to next version if subdirectory listing fails
             continue;
           }
@@ -188,7 +189,7 @@ export class ConfigManager implements IConfigManager {
   /**
    * Validate and transform parsed TOML data into ZiggyConfig
    */
-  private validateAndTransformConfig(parsed: any): ZiggyConfig {
+  private validateAndTransformConfig(parsed: Record<string, unknown>): ZiggyConfig {
     const config: ZiggyConfig = { 
       downloads: {} 
     };
@@ -208,7 +209,7 @@ export class ConfigManager implements IConfigManager {
 
     // Handle systemZig
     if (parsed.systemZig && typeof parsed.systemZig === 'object') {
-      const systemZig = parsed.systemZig as any;
+      const systemZig = parsed.systemZig as Record<string, unknown>;
       if (typeof systemZig.path === 'string' && typeof systemZig.version === 'string') {
         config.systemZig = {
           path: systemZig.path,
@@ -221,7 +222,7 @@ export class ConfigManager implements IConfigManager {
     if (parsed.downloads && typeof parsed.downloads === 'object') {
       for (const [version, downloadData] of Object.entries(parsed.downloads)) {
         if (downloadData && typeof downloadData === 'object') {
-          const data = downloadData as any;
+          const data = downloadData as Record<string, unknown>;
           
           // Validate required fields
           if (typeof data.path === 'string' && typeof data.status === 'string') {
@@ -248,8 +249,8 @@ export class ConfigManager implements IConfigManager {
   /**
    * Transform ZiggyConfig to TOML-friendly format
    */
-  private transformConfigForToml(config: ZiggyConfig): any {
-    const tomlData: any = {};
+  private transformConfigForToml(config: ZiggyConfig): Record<string, unknown> {
+    const tomlData: Record<string, unknown> = {};
 
     // Always include config version
     tomlData.configVersion = config.configVersion || CONFIG_VERSION;
@@ -317,7 +318,7 @@ export class ConfigManager implements IConfigManager {
   /**
    * Parse boolean values from various formats (for legacy compatibility)
    */
-  private parseBoolean(value: any): boolean | undefined {
+  private parseBoolean(value: unknown): boolean | undefined {
     if (typeof value === 'boolean') {
       return value;
     }
@@ -394,7 +395,7 @@ export class ConfigManager implements IConfigManager {
 
       // Only return migrated config if it has valid data
       return Object.keys(config.downloads).length > 0 || config.currentVersion ? config : null;
-    } catch (error) {
+    } catch (_error) {
       return null;
     }
   }

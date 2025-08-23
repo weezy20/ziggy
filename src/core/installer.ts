@@ -19,7 +19,9 @@ import type {
   IArchiveExtractor,
   IMirrorsManager
 } from '../interfaces.js';
-import type { ZiggyConfig, ZigDownloadIndex, DownloadInfo } from '../types.js';
+import type { ZigDownloadIndex, DownloadInfo } from '../types.js';
+import { Buffer } from "node:buffer";
+import process from "node:process";
 
 export class ZigInstaller implements IZigInstaller {
   private configManager: IConfigManager;
@@ -238,14 +240,14 @@ export class ZigInstaller implements IZigInstaller {
   /**
    * Validate if a version exists and is available for download
    */
-  public async validateVersion(version: string): Promise<boolean> {
+  public validateVersion(version: string): Promise<boolean> {
     return this.versionManager.validateVersion(version);
   }
 
   /**
    * Clean up resources and temporary files
    */
-  public async cleanup(): Promise<void> {
+  public cleanup(): Promise<void> {
     // Clean up incomplete downloads
     const config = this.configManager.load();
     const incompleteVersions = Object.keys(config.downloads).filter(version => {
@@ -277,7 +279,7 @@ export class ZigInstaller implements IZigInstaller {
   /**
    * Remove a specific Zig version
    */
-  public async removeVersion(version: string): Promise<void> {
+  public removeVersion(version: string): Promise<void> {
     if (version === 'system') {
       throw new Error('Cannot remove system Zig installation');
     }
@@ -309,7 +311,7 @@ export class ZigInstaller implements IZigInstaller {
   /**
    * Remove all installed versions except the current one
    */
-  public async cleanExceptCurrent(): Promise<void> {
+  public cleanExceptCurrent(): Promise<void> {
     const currentVersion = this.versionManager.getCurrentVersion();
     if (!currentVersion || currentVersion === 'system') {
       throw new Error('No current version set or using system version');
@@ -345,7 +347,7 @@ export class ZigInstaller implements IZigInstaller {
   /**
    * Remove all installed versions
    */
-  public async cleanAllVersions(): Promise<void> {
+  public cleanAllVersions(): Promise<void> {
     const config = this.configManager.load();
     const versionsToDelete = Object.keys(config.downloads);
 
@@ -559,7 +561,7 @@ export class ZigInstaller implements IZigInstaller {
    * Show available versions when system Zig is not found
    * @private
    */
-  private showAvailableVersions(config: any): void {
+  private showAvailableVersions(config: ZigDownloadIndex): void {
     const installedVersions = Object.keys(config.downloads).filter(v => 
       config.downloads[v].status === 'completed'
     );
@@ -670,7 +672,7 @@ export class ZigInstaller implements IZigInstaller {
   /**
    * Get community mirror URLs for a given original URL
    */
-  private async getMirrorUrls(originalUrl: string): Promise<string[]> {
+  private getMirrorUrls(originalUrl: string): Promise<string[]> {
     return this.mirrorsManager.getMirrorUrls(originalUrl);
   }
 
@@ -728,7 +730,7 @@ export class ZigInstaller implements IZigInstaller {
       }
       const arrayBuffer = await response.arrayBuffer();
       return Buffer.from(arrayBuffer);
-    } catch (error) {
+    } catch (_error) {
       return null;
     }
   }

@@ -4,8 +4,9 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { createApplication } from '../../src/index.js';
-import type { ZigInstaller } from '../../src/index.js';
+import type { ZigInstaller as _ZigInstaller } from '../../src/index.js';
 import { PlatformDetector } from '../../src/utils/platform.js';
+import process from "node:process";
 
 describe('Platform Detection Integration', () => {
   let originalEnv: NodeJS.ProcessEnv;
@@ -60,7 +61,7 @@ describe('Platform Detection Integration', () => {
     process.env.HOME = '/tmp/test-home';
     process.env.ZIGGY_DIR = '/tmp/test-ziggy';
 
-    const installer = await createApplication();
+    const _installer = await createApplication();
     const detector = new PlatformDetector();
     
     // Both should return the same shell information

@@ -5,6 +5,7 @@ import { FileSystemManager } from '../utils/filesystem.js';
 import { colors } from '../utils/colors.js';
 import { textPrompt, selectPrompt, withProgress } from '../cli/prompts/common.js';
 import { validateProjectName } from '../cli/prompts/validators.js';
+import process from "node:process";
 const log = console.log;
 
 /**

@@ -5,6 +5,7 @@ import type { ZiggyConfig } from '../../types';
 import type { PlatformDetector } from '../../utils/platform';
 import type { FileSystemManager } from '../../utils/filesystem';
 import type { VersionManager } from '../../core/version';
+import process from "node:process";
 
 export const log = console.log;
 
@@ -142,7 +143,7 @@ export class DownloadUI implements IDownloadUI {
     // If they chose main-menu, we just return and let the main loop continue
   }
 
-  public async setupPowerShellProfile(): Promise<void> {
+  public setupPowerShellProfile(): Promise<void> {
     try {
       // Use PowerShell's $PROFILE variable to get the correct path
       const profileResult = Bun.spawnSync(['powershell', '-Command', '$PROFILE'], {

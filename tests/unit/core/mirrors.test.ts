@@ -9,7 +9,7 @@ import type { ZiggyConfig } from '../../../src/types.js';
 
 // Mock console.log
 const mockLog = mock(() => {});
-const originalConsole = console.log;
+const _originalConsole = console.log;
 
 // Mock fetch
 const mockFetch = mock(() => Promise.resolve({
@@ -28,7 +28,7 @@ describe('MirrorsManager', () => {
     mockFetch.mockClear();
     
     // Mock global fetch
-    global.fetch = mockFetch;
+    globalThis.fetch = mockFetch;
     
     mockConfig = {
       downloads: {},

@@ -4,6 +4,7 @@
 
 import { createHash } from 'crypto';
 import { readFileSync } from 'fs';
+import { Buffer } from "node:buffer";
 
 const log = console.log;
 

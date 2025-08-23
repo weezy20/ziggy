@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, spyOn } from 'bun:test';
+import { describe, it, expect, beforeEach } from 'bun:test';
 import { MainMenuUI } from '../../../../src/cli/ui/main-menu';
 import type { PlatformDetector } from '../../../../src/utils/platform';
 import type { FileSystemManager } from '../../../../src/utils/filesystem';
@@ -83,7 +83,7 @@ describe('MainMenuUI', () => {
     expect(() => mainMenuUI.displayHeaderWithInfo()).not.toThrow();
   });
 
-  it('should have showPostActionOptions method', async () => {
+  it('should have showPostActionOptions method', () => {
     // This test would require mocking clack.select, which is complex
     // For now, just verify the method exists
     expect(typeof mainMenuUI.showPostActionOptions).toBe('function');

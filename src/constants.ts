@@ -3,6 +3,7 @@
  */
 
 // Configuration versioning
+import process from "node:process";
 export const CONFIG_VERSION = 1;
 
 // Zig download and verification URLs

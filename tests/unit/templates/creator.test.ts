@@ -21,7 +21,7 @@ const createMockFileSystemManager = (): IFileSystemManager => ({
   createWriteStream: mock(() => ({
     write: mock(() => {}),
     end: mock(() => {}),
-    on: mock((event: string, callback: Function) => {
+    on: mock((event: string, callback: () => void) => {
       if (event === 'finish') {
         setTimeout(callback, 0);
       }
@@ -37,16 +37,16 @@ const createMockFileSystemManager = (): IFileSystemManager => ({
 });
 
 // Mock fetch globally
-global.fetch = mock(async () => ({
+globalThis.fetch = mock(() => Promise.resolve({
   ok: true,
   status: 200,
   body: {
     getReader: () => ({
-      read: mock(async () => ({ done: true, value: new Uint8Array() })),
+      read: mock(() => Promise.resolve({ done: true, value: new Uint8Array() })),
       releaseLock: mock(() => {})
     })
   }
-})) as any;
+})) as Response;
 
 // Mock zip-lib
 mock.module('zip-lib', () => ({
@@ -117,7 +117,7 @@ describe('ProjectCreator', () => {
       await projectCreator.createFromTemplate('standard', 'test-project', '/tmp/test', onProgress);
 
       // Verify fetch was called
-      expect(global.fetch).toHaveBeenCalled();
+      expect(globalThis.fetch).toHaveBeenCalled();
       
       // Verify progress callbacks
       expect(onProgress).toHaveBeenCalledWith('Downloading template...');
@@ -130,8 +130,8 @@ describe('ProjectCreator', () => {
     it('should create proper build.zig content', async () => {
       await projectCreator.createFromTemplate('lean', 'my-app', '/tmp/test');
 
-      const writeFileCalls = (mockFileSystem.writeFile as any).mock.calls;
-      const buildZigCall = writeFileCalls.find((call: any[]) => call[0].endsWith('build.zig'));
+      const writeFileCalls = (mockFileSystem.writeFile as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+      const buildZigCall = writeFileCalls.find((call: unknown[]) => (call[0] as string).endsWith('build.zig'));
       
       expect(buildZigCall).toBeDefined();
       expect(buildZigCall[1]).toContain('my-app');
@@ -142,8 +142,8 @@ describe('ProjectCreator', () => {
     it('should create proper main.zig content', async () => {
       await projectCreator.createFromTemplate('lean', 'my-app', '/tmp/test');
 
-      const writeFileCalls = (mockFileSystem.writeFile as any).mock.calls;
-      const mainZigCall = writeFileCalls.find((call: any[]) => call[0].endsWith('main.zig'));
+      const writeFileCalls = (mockFileSystem.writeFile as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+      const mainZigCall = writeFileCalls.find((call: unknown[]) => (call[0] as string).endsWith('main.zig'));
       
       expect(mainZigCall).toBeDefined();
       expect(mainZigCall[1]).toContain('Hello, {s}!\\n", .{"my-app"}');
@@ -154,8 +154,8 @@ describe('ProjectCreator', () => {
     it('should create proper README.md content', async () => {
       await projectCreator.createFromTemplate('lean', 'my-app', '/tmp/test');
 
-      const writeFileCalls = (mockFileSystem.writeFile as any).mock.calls;
-      const readmeCall = writeFileCalls.find((call: any[]) => call[0].endsWith('README.md'));
+      const writeFileCalls = (mockFileSystem.writeFile as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+      const readmeCall = writeFileCalls.find((call: unknown[]) => (call[0] as string).endsWith('README.md'));
       
       expect(readmeCall).toBeDefined();
       expect(readmeCall[1]).toContain('# my-app');
@@ -167,10 +167,10 @@ describe('ProjectCreator', () => {
 
   describe('error handling', () => {
     it('should clean up on download failure', async () => {
-      global.fetch = mock(async () => ({
+      globalThis.fetch = mock(() => Promise.resolve({
         ok: false,
         status: 404
-      })) as any;
+      })) as Response;
 
       mockFileSystem.fileExists = mock((path: string) => {
         // Simulate directory was created but extracted dir not found
@@ -186,11 +186,11 @@ describe('ProjectCreator', () => {
     });
 
     it('should handle fetch stream errors gracefully', async () => {
-      global.fetch = mock(async () => ({
+      globalThis.fetch = mock(() => Promise.resolve({
         ok: true,
         status: 200,
         body: null // No body
-      })) as any;
+      })) as Response;
 
       await expect(
         projectCreator.createFromTemplate('standard', 'test-project', '/tmp/test')

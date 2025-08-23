@@ -1,6 +1,6 @@
 import { colors } from '../utils/colors';
 import type { IConfigManager, IVersionManager } from '../interfaces.js';
-import type { ZiggyConfig } from '../types.js';
+// import type { ZiggyConfig } from '../types.js';
 
 const log = console.log;
 
@@ -15,7 +15,7 @@ export async function listCommand(configManager?: IConfigManager, versionManager
     const { createApplication } = await import('../index.js');
     const app = await createApplication();
     configManager = app.getConfigManager();
-    versionManager = configManager as any; // Type assertion for backward compatibility
+    versionManager = configManager as IVersionManager; // Type assertion for backward compatibility
   }
   
   const config = configManager.load();

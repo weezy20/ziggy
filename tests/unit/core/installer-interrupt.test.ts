@@ -40,8 +40,8 @@ describe('ZigInstaller Interrupt Handling', () => {
     };
 
     mockVersionManager = {
-      getAvailableVersions: mock(async () => ['0.11.0', '0.12.0']),
-      validateVersion: mock(async () => true),
+      getAvailableVersions: mock(() => Promise.resolve(['0.11.0', '0.12.0'])),
+      validateVersion: mock(() => Promise.resolve(true)),
       getCurrentVersion: mock(() => undefined),
       setCurrentVersion: mock(() => {}),
       clearCurrentVersion: mock(() => {})
@@ -79,16 +79,16 @@ describe('ZigInstaller Interrupt Handling', () => {
 
     mockArchiveExtractor = {
       extract: mock(async () => {}),
-      validateArchive: mock(async () => true)
+      validateArchive: mock(() => Promise.resolve(true))
     };
 
     mockMirrorsManager = {
-      getCommunityMirrors: mock(async () => []),
+      getCommunityMirrors: mock(() => Promise.resolve([])),
       getCachedMirrors: mock(() => []),
       updateMirrorsCache: mock(async () => {}),
       selectMirrorForDownload: mock(() => []),
       isMirrorsCacheExpired: mock(() => false),
-      getMirrorUrls: mock(async () => [])
+      getMirrorUrls: mock(() => Promise.resolve([]))
     };
 
     installer = new ZigInstaller(
@@ -129,7 +129,7 @@ describe('ZigInstaller Interrupt Handling', () => {
     // Wait for download to complete
     try {
       await downloadPromise;
-    } catch (error) {
+    } catch (_error) {
       // Expected to fail due to mocking, but that's okay for this test
     }
   });
@@ -141,7 +141,7 @@ describe('ZigInstaller Interrupt Handling', () => {
     
     try {
       await installer.downloadVersion('0.11.0');
-    } catch (error) {
+    } catch (_error) {
       // Expected to fail due to mocking, but that's okay for this test
     }
 
@@ -175,7 +175,7 @@ describe('ZigInstaller Interrupt Handling', () => {
     // Clean up the promise
     try {
       await downloadPromise;
-    } catch (error) {
+    } catch (_error) {
       // Expected to fail due to mocking
     }
   });
@@ -201,7 +201,7 @@ describe('ZigInstaller Interrupt Handling', () => {
     // Clean up
     try {
       await downloadPromise;
-    } catch (error) {
+    } catch (_error) {
       // Expected
     }
   });
