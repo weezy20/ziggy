@@ -15,6 +15,7 @@ import { ArchiveExtractor } from './utils/archive';
 import { SpinnerProgressReporter } from './utils/progress';
 import { ConfigManager } from './core/config';
 import { VersionManager } from './core/version';
+import { MirrorsManager } from './core/mirrors';
 import { ZigInstaller as CoreZigInstaller } from './core/installer';
 import { TemplateManager } from './templates/manager.js';
 import { ProjectCreator } from './templates/creator.js';
@@ -34,7 +35,8 @@ import type {
   IArchiveExtractor,
   ITemplateManager,
   IProjectCreator,
-  IProgressReporter
+  IProgressReporter,
+  IMirrorsManager
 } from './interfaces';
 import type { ZigDownloadIndex, DownloadStatus, ZiggyConfig } from './types';
 
@@ -142,12 +144,18 @@ class ApplicationFactory {
       return new VersionManager(configManager, arch, platform);
     });
 
+    this.container.register<IMirrorsManager>('mirrorsManager', () => {
+      const configManager = this.container.resolve<IConfigManager>('configManager');
+      return new MirrorsManager(configManager);
+    });
+
     this.container.register<IZigInstaller>('coreInstaller', () => {
       const configManager = this.container.resolve<IConfigManager>('configManager');
       const versionManager = this.container.resolve<IVersionManager>('versionManager');
       const platformDetector = this.container.resolve<IPlatformDetector>('platformDetector');
       const fileSystemManager = this.container.resolve<IFileSystemManager>('fileSystemManager');
       const archiveExtractor = this.container.resolve<IArchiveExtractor>('archiveExtractor');
+      const mirrorsManager = this.container.resolve<IMirrorsManager>('mirrorsManager');
       const ziggyDir = platformDetector.getZiggyDir();
       return new CoreZigInstaller(
         configManager,
@@ -155,6 +163,7 @@ class ApplicationFactory {
         platformDetector,
         fileSystemManager,
         archiveExtractor,
+        mirrorsManager,
         ziggyDir
       );
     });

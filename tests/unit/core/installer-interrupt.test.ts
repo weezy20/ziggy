@@ -9,7 +9,8 @@ import type {
   IVersionManager, 
   IPlatformDetector,
   IFileSystemManager,
-  IArchiveExtractor 
+  IArchiveExtractor,
+  IMirrorsManager
 } from '../../../src/interfaces.js';
 import { ZigInstaller } from '../../../src/core/installer.js';
 
@@ -20,6 +21,7 @@ describe('ZigInstaller Interrupt Handling', () => {
   let mockPlatformDetector: IPlatformDetector;
   let mockFileSystemManager: IFileSystemManager;
   let mockArchiveExtractor: IArchiveExtractor;
+  let mockMirrorsManager: IMirrorsManager;
 
   beforeEach(() => {
     // Mock all dependencies
@@ -80,12 +82,22 @@ describe('ZigInstaller Interrupt Handling', () => {
       validateArchive: mock(async () => true)
     };
 
+    mockMirrorsManager = {
+      getCommunityMirrors: mock(async () => []),
+      getCachedMirrors: mock(() => []),
+      updateMirrorsCache: mock(async () => {}),
+      selectMirrorForDownload: mock(() => []),
+      isMirrorsCacheExpired: mock(() => false),
+      getMirrorUrls: mock(async () => [])
+    };
+
     installer = new ZigInstaller(
       mockConfigManager,
       mockVersionManager,
       mockPlatformDetector,
       mockFileSystemManager,
       mockArchiveExtractor,
+      mockMirrorsManager,
       '/mock/ziggy'
     );
   });

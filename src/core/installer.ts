@@ -5,9 +5,8 @@
 
 import { join } from 'path';
 import { colors } from '../utils/colors.js';
-import { shuffleArray } from '../utils/array.js';
 import { verifyChecksum, verifyMinisignature } from '../utils/crypto.js';
-import { ZIG_COMMUNITY_MIRRORS_URL, MIRRORS_CACHE_DURATION_HOURS, MAX_MIRROR_RETRIES, ZIG_MINISIGN_PUBLIC_KEY } from '../constants.js';
+import { MAX_MIRROR_RETRIES, ZIG_MINISIGN_PUBLIC_KEY } from '../constants.js';
 
 // Simple log function
 const log = console.log;
@@ -17,7 +16,8 @@ import type {
   IVersionManager, 
   IPlatformDetector,
   IFileSystemManager,
-  IArchiveExtractor 
+  IArchiveExtractor,
+  IMirrorsManager
 } from '../interfaces.js';
 import type { ZiggyConfig, ZigDownloadIndex, DownloadInfo } from '../types.js';
 
@@ -27,6 +27,7 @@ export class ZigInstaller implements IZigInstaller {
   private platformDetector: IPlatformDetector;
   private fileSystemManager: IFileSystemManager;
   private archiveExtractor: IArchiveExtractor;
+  private mirrorsManager: IMirrorsManager;
   private ziggyDir: string;
   private binDir: string;
   private arch: string;
@@ -39,6 +40,7 @@ export class ZigInstaller implements IZigInstaller {
     platformDetector: IPlatformDetector,
     fileSystemManager: IFileSystemManager,
     archiveExtractor: IArchiveExtractor,
+    mirrorsManager: IMirrorsManager,
     ziggyDir: string
   ) {
     this.configManager = configManager;
@@ -46,6 +48,7 @@ export class ZigInstaller implements IZigInstaller {
     this.platformDetector = platformDetector;
     this.fileSystemManager = fileSystemManager;
     this.archiveExtractor = archiveExtractor;
+    this.mirrorsManager = mirrorsManager;
     this.ziggyDir = ziggyDir;
     this.binDir = join(ziggyDir, 'bin');
     this.arch = platformDetector.getArch();
@@ -582,8 +585,8 @@ export class ZigInstaller implements IZigInstaller {
     const mirrorUrls = await this.getMirrorUrls(originalUrl);
     
     // Try community mirrors first (shuffled for load balancing)
-    const shuffledMirrors = shuffleArray(mirrorUrls);
-    const urlsToTry = [...shuffledMirrors.slice(0, MAX_MIRROR_RETRIES), originalUrl];
+    const selectedMirrors = this.mirrorsManager.selectMirrorForDownload(mirrorUrls);
+    const urlsToTry = [...selectedMirrors, originalUrl];
 
     let lastError: Error | null = null;
     let downloadSuccess = false;
@@ -668,60 +671,7 @@ export class ZigInstaller implements IZigInstaller {
    * Get community mirror URLs for a given original URL
    */
   private async getMirrorUrls(originalUrl: string): Promise<string[]> {
-    const mirrorUrls: string[] = [];
-    const config = this.configManager.load();
-    
-    // Check if we have cached mirrors and they're not expired
-    const cachedMirrors = config.communityMirrors;
-    const lastUpdated = config.communityMirrorsLastUpdated;
-    const now = new Date();
-    const cacheAge = lastUpdated ? 
-      (now.getTime() - new Date(lastUpdated).getTime()) / (1000 * 60 * 60) : 
-      Infinity;
-
-    let mirrors: string[] = [];
-
-    if (cachedMirrors && cacheAge < MIRRORS_CACHE_DURATION_HOURS) {
-      // Use cached mirrors
-      mirrors = cachedMirrors;
-      log(colors.gray(`Using cached community mirrors (${Math.floor(cacheAge)}h old, ${mirrors.length} mirrors)`));
-    } else {
-      // Fetch fresh mirrors
-      log(colors.blue(`Cache status: cachedMirrors=${!!cachedMirrors}, cacheAge=${cacheAge}h, limit=${MIRRORS_CACHE_DURATION_HOURS}h`));
-      try {
-        log(colors.blue('Fetching updated community mirrors...'));
-        const mirrorsResponse = await fetch(ZIG_COMMUNITY_MIRRORS_URL);
-        if (mirrorsResponse.ok) {
-          const mirrorsText = await mirrorsResponse.text();
-          mirrors = mirrorsText.split('\n').filter(line => line.trim() && line.startsWith('https://'));
-          
-          // Update cache
-          const updatedConfig = { ...config };
-          updatedConfig.communityMirrors = mirrors;
-          updatedConfig.communityMirrorsLastUpdated = now.toISOString();
-          this.configManager.save(updatedConfig);
-          
-          log(colors.green(`✓ Updated community mirrors cache (${mirrors.length} mirrors)`));
-        } else {
-          throw new Error(`HTTP ${mirrorsResponse.status}`);
-        }
-      } catch (error) {
-        log(colors.yellow(`⚠ Could not fetch community mirrors: ${error}`));
-        // Use cached mirrors as fallback even if expired
-        if (cachedMirrors) {
-          mirrors = cachedMirrors;
-          log(colors.yellow('Using expired cached mirrors as fallback'));
-        }
-      }
-    }
-
-    // Convert original URL to use mirrors
-    const urlParts = originalUrl.replace('https://ziglang.org/download/', '');
-    for (const mirror of mirrors) {
-      mirrorUrls.push(`${mirror.trim()}/${urlParts}?source=ziggy`);
-    }
-
-    return mirrorUrls;
+    return this.mirrorsManager.getMirrorUrls(originalUrl);
   }
 
   /**

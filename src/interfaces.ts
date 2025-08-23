@@ -104,3 +104,13 @@ export interface IProgressReporter {
   finishProgress(message?: string): void;
   reportError(error: Error): void;
 }
+
+// Community mirrors management interface
+export interface IMirrorsManager {
+  getCommunityMirrors(): Promise<string[]>;
+  getCachedMirrors(): string[];
+  updateMirrorsCache(): Promise<void>;
+  selectMirrorForDownload(mirrors: string[]): string[];
+  isMirrorsCacheExpired(): boolean;
+  getMirrorUrls(originalUrl: string): Promise<string[]>;
+}
