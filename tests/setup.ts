@@ -10,13 +10,13 @@ export const testConfig = {
 
 // Mock implementations for testing
 export class MockConfigManager {
-  private mockConfig: any = {};
+  private mockConfig: Record<string, unknown> = {};
   
   load() {
     return this.mockConfig;
   }
   
-  save(config: any) {
+  save(config: Record<string, unknown>) {
     this.mockConfig = config;
   }
   

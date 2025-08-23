@@ -4,13 +4,13 @@
 
 import { describe, it, expect } from 'bun:test';
 import type { 
-  IZigInstaller, 
-  IConfigManager, 
-  IVersionManager,
-  IPlatformDetector,
-  IFileSystemManager,
-  IArchiveExtractor,
-  ITUIManager 
+  IZigInstaller as _IZigInstaller, 
+  IConfigManager as _IConfigManager, 
+  IVersionManager as _IVersionManager,
+  IPlatformDetector as _IPlatformDetector,
+  IFileSystemManager as _IFileSystemManager,
+  IArchiveExtractor as _IArchiveExtractor,
+  ITUIManager as _ITUIManager 
 } from '../../src/interfaces.js';
 
 describe('Core Interfaces', () => {

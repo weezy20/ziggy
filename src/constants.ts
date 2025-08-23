@@ -3,17 +3,20 @@
  */
 
 // Configuration versioning
+import process from "node:process";
 export const CONFIG_VERSION = 1;
 
 // Zig download and verification URLs
 export const ZIG_DOWNLOAD_BASE_URL = 'https://ziglang.org/download';
 export const ZIG_DOWNLOAD_INDEX_URL = 'https://ziglang.org/download/index.json';
+export const ZIG_COMMUNITY_MIRRORS_URL = 'https://ziglang.org/download/community-mirrors.txt';
+
+// Community mirrors cache settings
+export const MIRRORS_CACHE_DURATION_HOURS = 24;
+export const MAX_MIRROR_RETRIES = 2;
 
 // Minisign verification
 export const ZIG_MINISIGN_PUBLIC_KEY = 'RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U';
-
-// Community mirrors (empty for now, future feature)
-export const COMMUNITY_MIRRORS: string[] = [];
 
 // File extensions and patterns
 export const SUPPORTED_ARCHIVE_EXTENSIONS = ['.tar.xz', '.zip'];

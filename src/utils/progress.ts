@@ -6,6 +6,7 @@
 import type { IProgressReporter } from '../interfaces.js';
 import type { DownloadProgress } from '../types.js';
 import { colors } from './colors.js';
+import process from "node:process";
 
 export class SpinnerProgressReporter implements IProgressReporter {
   private spinnerChars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];

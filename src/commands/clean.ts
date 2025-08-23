@@ -1,14 +1,26 @@
 import * as clack from '@clack/prompts';
-import { ZigInstaller } from '../index';
+import { selectCleanupAction, showNote } from '../cli/prompts/common.js';
+import type { IZigInstaller, IConfigManager } from '../interfaces.js';
+// import type { ZiggyConfig } from '../types.js';
 
 /**
  * Clean command - cleanup Zig installations
+ * @param installer - Core installer instance
+ * @param configManager - Configuration manager instance
  */
-export async function cleanCommand(): Promise<void> {
-  const installer = new ZigInstaller();
+export async function cleanCommand(installer?: IZigInstaller, configManager?: IConfigManager): Promise<void> {
+  // If dependencies not provided, create them (for backward compatibility)
+  if (!installer || !configManager) {
+    const { createApplication } = await import('../index.js');
+    const app = await createApplication();
+    installer = app;
+    configManager = app.getConfigManager();
+  }
   
-  const downloadedVersions = Object.keys(installer.config.downloads).filter(v => {
-    const info = installer.config.downloads[v];
+  const config = configManager.load();
+  
+  const downloadedVersions = Object.keys(config.downloads).filter(v => {
+    const info = config.downloads[v];
     return info?.status === 'completed' && v !== 'system';
   });
 
@@ -20,49 +32,28 @@ export async function cleanCommand(): Promise<void> {
   // Show current versions
   const versionsList = downloadedVersions
     .map(v => {
-      const isCurrent = installer.config.currentVersion === v ? ' ← current' : '';
+      const isCurrent = config.currentVersion === v ? ' ← current' : '';
       return `• ${v}${isCurrent}`;
     })
     .join('\n');
   
-  clack.note(versionsList, 'Installed Zig versions (managed by ziggy)');
+  showNote(versionsList, 'Installed Zig versions (managed by ziggy)');
 
-  const choices = [
-    { value: 'clean-all', label: 'Clean everything' }
-  ];
+  const action = await selectCleanupAction(downloadedVersions, config.currentVersion);
 
-  // Add option to keep current version if there is one
-  if (installer.config.currentVersion && installer.config.currentVersion !== 'system') {
-    choices.push({ 
-      value: 'clean-except-current', 
-      label: `Clean all except current active version (${installer.config.currentVersion})` 
-    });
-  }
-
-  // Add option to select which version to keep
-  if (downloadedVersions.length > 1) {
-    choices.push({ value: 'select-keep', label: 'Select which version to keep' });
-  }
-
-  const action = await clack.select({
-    message: 'Choose cleanup option: (Only ziggy managed installations will be affected)',
-    options: choices,
-    initialValue: 'clean-all'
-  });
-
-  if (clack.isCancel(action)) {
+  if (action === 'back') {
     return;
   }
 
   switch (action) {
     case 'clean-all':
-      await installer.cleanAllVersions();
+      await (installer as { cleanAllVersions(): Promise<void> }).cleanAllVersions();
       break;
     case 'clean-except-current':
-      await installer.cleanExceptCurrent();
+      await (installer as { cleanExceptCurrent(): Promise<void> }).cleanExceptCurrent();
       break;
     case 'select-keep':
-      await installer.selectVersionToKeep();
+      await (installer as { selectVersionToKeep(): Promise<void> }).selectVersionToKeep();
       break;
   }
 }

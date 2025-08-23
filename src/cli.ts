@@ -1,11 +1,13 @@
 import { Command } from 'commander';
-import { ZigInstaller } from './index';
 import { initCommand } from './commands/init';
 import { useCommand } from './commands/use';
 import { listCommand } from './commands/list';
 import { cleanCommand } from './commands/clean';
 import { setupCommand } from './commands/setup';
+import { statsCommand } from './commands/stats';
 import { colors } from './utils/colors';
+import type { IVersionManager, IPlatformDetector } from './interfaces';
+import process from "node:process";
 
 export function setupCLI(): Command {
   const program = new Command();
@@ -36,7 +38,10 @@ export function setupCLI(): Command {
     .argument('[version]', 'Specific version to use (e.g., "master", "0.14.1")')
     .action(async (version?: string) => {
       try {
-        await useCommand(false, version);
+        const { createApplication } = await import('./index');
+        const installer = await createApplication();
+        const configManager = installer.getConfigManager();
+        await useCommand(false, version, installer, configManager, configManager as IVersionManager);
       } catch (error) {
         console.error(colors.red('Error:'), error);
         process.exit(1);
@@ -49,7 +54,10 @@ export function setupCLI(): Command {
     .description('List installed Zig versions')
     .action(async () => {
       try {
-        await listCommand();
+        const { createApplication } = await import('./index');
+        const installer = await createApplication();
+        const configManager = installer.getConfigManager();
+        await listCommand(configManager, configManager as IVersionManager);
       } catch (error) {
         console.error(colors.red('Error:'), error);
         process.exit(1);
@@ -62,7 +70,10 @@ export function setupCLI(): Command {
     .description('Clean up Zig installations')
     .action(async () => {
       try {
-        await cleanCommand();
+        const { createApplication } = await import('./index');
+        const installer = await createApplication();
+        const configManager = installer.getConfigManager();
+        await cleanCommand(installer, configManager);
       } catch (error) {
         console.error(colors.red('Error:'), error);
         process.exit(1);
@@ -75,7 +86,26 @@ export function setupCLI(): Command {
     .description('Setup shell environment for Ziggy')
     .action(async () => {
       try {
-        await setupCommand();
+        const { createApplication } = await import('./index');
+        const installer = await createApplication();
+        const platformDetector = (installer as { platformDetector: IPlatformDetector }).platformDetector;
+        const envPath = (installer as { envPath: string }).envPath;
+        await setupCommand(platformDetector, envPath);
+      } catch (error) {
+        console.error(colors.red('Error:'), error);
+        process.exit(1);
+      }
+    });
+
+  // Stats command - show download statistics and mirror health
+  program
+    .command('stats')
+    .description('Show download statistics and mirror health')
+    .action(async () => {
+      try {
+        const { createApplication } = await import('./index');
+        const installer = await createApplication();
+        await statsCommand(installer.getConfigManager());
       } catch (error) {
         console.error(colors.red('Error:'), error);
         process.exit(1);
@@ -86,7 +116,8 @@ export function setupCLI(): Command {
   program
     .action(async () => {
       try {
-        const installer = new ZigInstaller();
+        const { createApplication } = await import('./index');
+        const installer = await createApplication();
         await installer.run();
       } catch (error) {
         console.error(colors.red('Fatal error:'), error);

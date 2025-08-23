@@ -8,6 +8,8 @@ import { xz } from '@napi-rs/lzma';
 import { extract as extractZipLib } from 'zip-lib';
 import type { IArchiveExtractor, IFileSystemManager, IProgressReporter } from '../interfaces.js';
 import { colors } from './colors.js';
+import { PerformanceMonitor, MemoryOptimizer } from './performance.js';
+import { Buffer } from "node:buffer";
 
 export class ArchiveExtractor implements IArchiveExtractor {
     constructor(
@@ -23,33 +25,56 @@ export class ArchiveExtractor implements IArchiveExtractor {
     public extractTarXz(filePath: string, outputPath: string): Promise<void> {
         return new Promise((resolve, reject) => {
             try {
+                const monitor = PerformanceMonitor.getInstance();
+                monitor.startTimer(`extract-tarxz-${filePath}`);
+                
                 this.progressReporter?.startProgress(`Extracting ${filePath}...`);
 
+                // Use streaming approach to reduce memory usage
                 const inputStream = this.fileSystemManager.createReadStream(filePath);
                 const chunks: Uint8Array[] = [];
+                let totalSize = 0;
+                const MAX_MEMORY_USAGE = 100 * 1024 * 1024; // 100MB limit
 
                 inputStream.on('data', (chunk: string | Buffer) => {
-                    chunks.push(Buffer.isBuffer(chunk) ? new Uint8Array(chunk) : new Uint8Array(Buffer.from(chunk)));
+                    const uint8Chunk = Buffer.isBuffer(chunk) ? new Uint8Array(chunk) : new Uint8Array(Buffer.from(chunk));
+                    totalSize += uint8Chunk.length;
+                    
+                    // Check memory usage to prevent excessive memory consumption
+                    if (totalSize > MAX_MEMORY_USAGE) {
+                        inputStream.destroy();
+                        throw new Error(`Archive too large (>${MAX_MEMORY_USAGE / 1024 / 1024}MB). Consider using a different extraction method.`);
+                    }
+                    
+                    chunks.push(uint8Chunk);
                 });
 
                 inputStream.on('end', async () => {
                     try {
-                        // Combine all chunks into a single Uint8Array
-                        const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-                        const compressedData = new Uint8Array(totalLength);
+                        // Combine all chunks into a single Uint8Array efficiently
+                        const compressedData = new Uint8Array(totalSize);
                         let offset = 0;
                         for (const chunk of chunks) {
                             compressedData.set(chunk, offset);
                             offset += chunk.length;
                         }
 
+                        // Clear chunks array to free memory
+                        chunks.length = 0;
+
                         // Decompress the XZ data
                         const decompressedData = await xz.decompress(compressedData);
 
-                        // Create a temporary tar file
+                        // Create a temporary tar file with streaming
                         const tempTarPath = filePath.replace('.tar.xz', '.tar');
                         const tempWriter = this.fileSystemManager.createWriteStream(tempTarPath);
-                        tempWriter.write(decompressedData);
+                        
+                        // Write in chunks to avoid memory spikes
+                        const CHUNK_SIZE = 64 * 1024; // 64KB chunks
+                        for (let i = 0; i < decompressedData.length; i += CHUNK_SIZE) {
+                            const chunk = decompressedData.slice(i, i + CHUNK_SIZE);
+                            tempWriter.write(chunk);
+                        }
                         tempWriter.end();
 
                         await new Promise<void>((resolveWrite, rejectWrite) => {
@@ -68,9 +93,15 @@ export class ArchiveExtractor implements IArchiveExtractor {
                         this.fileSystemManager.safeRemove(tempTarPath);
 
                         this.progressReporter?.finishProgress('Extraction completed successfully');
+                        
+                        // End performance monitoring and cleanup memory
+                        monitor.endTimer(`extract-tarxz-${filePath}`);
+                        MemoryOptimizer.forceGC();
+                        
                         resolve();
                     } catch (error) {
                         this.progressReporter?.reportError(error as Error);
+                        monitor.endTimer(`extract-tarxz-${filePath}`);
                         reject(error);
                     }
                 });

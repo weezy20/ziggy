@@ -3,8 +3,10 @@
  */
 
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { Buffer } from 'node:buffer';
 import { ArchiveExtractor } from '../../../src/utils/archive.js';
 import type { IFileSystemManager, IProgressReporter } from '../../../src/interfaces.js';
+import { Buffer } from "node:buffer";
 
 // Create mock implementations
 const createMockFileSystemManager = (): IFileSystemManager => ({
@@ -20,18 +22,18 @@ const createMockFileSystemManager = (): IFileSystemManager => ({
   createWriteStream: mock(() => ({
     write: mock(() => {}),
     end: mock(() => {}),
-    on: mock((event: string, callback: Function) => {
+    on: mock((event: string, callback: () => void) => {
       if (event === 'finish') {
         setTimeout(callback, 0);
       }
     })
   })),
   createReadStream: mock(() => ({
-    on: mock((event: string, callback: Function) => {
+    on: mock((event: string, callback: (data?: Buffer) => void) => {
       if (event === 'data') {
         setTimeout(() => callback(Buffer.from('test data')), 0);
       } else if (event === 'end') {
-        setTimeout(callback, 10);
+        setTimeout(() => callback(), 10);
       }
     })
   })),
@@ -84,7 +86,7 @@ describe('ArchiveExtractor', () => {
       // Create a mock that emits an error
       const errorMockFS = createMockFileSystemManager();
       errorMockFS.createReadStream = mock(() => ({
-        on: mock((event: string, callback: Function) => {
+        on: mock((event: string, callback: (error?: Error) => void) => {
           if (event === 'error') {
             setTimeout(() => callback(error), 0);
           }

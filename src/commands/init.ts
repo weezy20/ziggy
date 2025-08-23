@@ -1,56 +1,75 @@
 import { resolve } from 'path';
-import { existsSync } from 'fs';
-import * as clack from '@clack/prompts';
-import { cloneTemplateRepository } from '../utils/template';
-import { colors } from '../utils/colors';
-import { handleClackCancel } from '../utils/clack-helpers';
+import { TemplateManager } from '../templates/manager.js';
+import { ProjectCreator } from '../templates/creator.js';
+import { FileSystemManager } from '../utils/filesystem.js';
+import { colors } from '../utils/colors.js';
+import { textPrompt, selectPrompt, withProgress } from '../cli/prompts/common.js';
+import { validateProjectName } from '../cli/prompts/validators.js';
+import process from "node:process";
 const log = console.log;
 
 /**
- * Initialize a new Zig project using the template
+ * Initialize a new Zig project using templates
  */
 export async function initCommand(projectName?: string): Promise<void> {
   log(colors.cyan('🚀 Ziggy Init - Create a new Zig project'));
   log();
 
+  // Initialize template system
+  const templateManager = new TemplateManager();
+  const fileSystemManager = new FileSystemManager();
+  const projectCreator = new ProjectCreator(templateManager, fileSystemManager);
+
   let targetProjectName = projectName;
 
   // If no project name provided, ask for it
   if (!targetProjectName) {
-    const namePrompt = await clack.text({
-      message: 'What is the name of your project?',
-      placeholder: 'my-zig-app',
-      validate: (value) => {
-        if (!value) return 'Project name is required';
-        if (!/^[a-zA-Z0-9_-]+$/.test(value)) {
-          return 'Project name can only contain letters, numbers, underscores, and hyphens';
-        }
-        return undefined;
-      }
-    });
-
-    targetProjectName = handleClackCancel(namePrompt);
+    targetProjectName = await textPrompt(
+      'What is the name of your project?',
+      'my-zig-app',
+      validateProjectName,
+      'Project creation cancelled.'
+    );
   }
 
   const targetPath = resolve(process.cwd(), targetProjectName);
 
   // Check if directory already exists
-  if (existsSync(targetPath)) {
+  if (fileSystemManager.fileExists(targetPath)) {
     console.error(colors.red(`❌ Directory '${targetProjectName}' already exists`));
     process.exit(1);
   }
 
-  const spinner = clack.spinner();
+  // Ask user to select template
+  const availableTemplates = templateManager.getAllTemplateInfo();
+  const templateOptions = availableTemplates.map(template => ({
+    value: template.name,
+    label: `${template.displayName} - ${template.description}`
+  }));
+
+  const selectedTemplate = await selectPrompt(
+    'Choose a project template:',
+    templateOptions,
+    'standard',
+    undefined,
+    'Project creation cancelled.'
+  );
 
   try {
-    // Download and extract the template repository
-    spinner.start('Initializing project...');
-    
-    await cloneTemplateRepository(targetPath, (message) => {
-      spinner.message(message);
-    });
-    
-    spinner.stop(colors.green('🎉 Project created successfully!'));
+    // Create project from selected template using progress utility
+    await withProgress(
+      async (updateMessage) => {
+        await projectCreator.createFromTemplate(
+          selectedTemplate, 
+          targetProjectName, 
+          targetPath,
+          updateMessage
+        );
+      },
+      'Initializing project...',
+      colors.green('🎉 Project created successfully!'),
+      'Failed to create project'
+    );
 
     log();
     log(colors.cyan('Next steps:'));
@@ -63,7 +82,6 @@ export async function initCommand(projectName?: string): Promise<void> {
     process.exit(0);
 
   } catch (error) {
-    spinner.stop('Failed');
     console.error(colors.red(`❌ Failed to create project: ${error}`));
     process.exit(1);
   }

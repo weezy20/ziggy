@@ -13,6 +13,7 @@ export interface IZigInstaller {
   validateVersion(version: string): Promise<boolean>;
   cleanup(): Promise<void>;
   getCurrentDownload(): { cleanup?: () => void } | null;
+  getConfigManager(): IConfigManager;
 }
 
 // Configuration management interface
@@ -39,6 +40,7 @@ export interface IPlatformDetector {
   getShellInfo(): ShellInfo;
   isZiggyConfigured(binDir: string): boolean;
   hasEnvFileConfigured(envPath: string): boolean;
+  isZiggyInPath(binDir: string): boolean;
   getZiggyDir(): string;
   expandHomePath(path: string): string;
   getShellSourceLine(envPath: string): string;
@@ -57,9 +59,9 @@ export interface IFileSystemManager {
   writeFile(path: string, content: string): void;
   readFile(path: string): string;
   appendFile(path: string, content: string): void;
-  createWriteStream(path: string): any;
-  createReadStream(path: string): any;
-  getStats(path: string): any;
+  createWriteStream(path: string): NodeJS.WritableStream;
+  createReadStream(path: string): NodeJS.ReadableStream;
+  getStats(path: string): { size: number; isFile(): boolean; isDirectory(): boolean };
   listDirectory(path: string): string[];
   isDirectory(path: string): boolean;
   isFile(path: string): boolean;
@@ -101,4 +103,14 @@ export interface IProgressReporter {
   updateProgress(progress: DownloadProgress): void;
   finishProgress(message?: string): void;
   reportError(error: Error): void;
+}
+
+// Community mirrors management interface
+export interface IMirrorsManager {
+  getCommunityMirrors(): Promise<string[]>;
+  getCachedMirrors(): string[];
+  updateMirrorsCache(): Promise<void>;
+  selectMirrorForDownload(mirrors: string[]): string[];
+  isMirrorsCacheExpired(): boolean;
+  getMirrorUrls(originalUrl: string): Promise<string[]>;
 }

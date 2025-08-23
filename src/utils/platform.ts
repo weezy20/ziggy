@@ -6,6 +6,7 @@
 import { resolve, join } from 'path';
 import { existsSync } from 'fs';
 import type { ShellInfo } from '../types.js';
+import process from "node:process";
 
 export interface IPlatformDetector {
   getArch(): string;
@@ -25,6 +26,8 @@ export class PlatformDetector implements IPlatformDetector {
   private arch: string;
   private platform: string;
   private os: string;
+  private shellInfoCache: ShellInfo | null = null;
+  private ziggyDirCache: string | null = null;
 
   constructor() {
     this.arch = this.detectArch();
@@ -54,10 +57,15 @@ export class PlatformDetector implements IPlatformDetector {
   }
 
   /**
-   * Detect and return shell information for the current environment
+   * Detect and return shell information for the current environment with caching
    */
   public getShellInfo(): ShellInfo {
-    return this.detectShell();
+    if (this.shellInfoCache) {
+      return this.shellInfoCache;
+    }
+    
+    this.shellInfoCache = this.detectShell();
+    return this.shellInfoCache;
   }
 
   /**
@@ -105,13 +113,37 @@ export class PlatformDetector implements IPlatformDetector {
   }
 
   /**
-   * Get the ziggy directory path, checking environment variable first
+   * Check if ziggy bin directory is already in PATH
+   */
+  public isZiggyInPath(binDir: string): boolean {
+    const pathEnv = process.env.PATH || '';
+    const pathSeparator = process.platform === 'win32' ? ';' : ':';
+    const paths = pathEnv.split(pathSeparator);
+    
+    // Normalize paths for comparison
+    const normalizedBinDir = resolve(binDir);
+    return paths.some(path => {
+      try {
+        return resolve(path) === normalizedBinDir;
+      } catch {
+        return false;
+      }
+    });
+  }
+
+  /**
+   * Get the ziggy directory path, checking environment variable first with caching
    */
   public getZiggyDir(): string {
+    if (this.ziggyDirCache) {
+      return this.ziggyDirCache;
+    }
+
     // Check environment variable first
     const envDir = process.env.ZIGGY_DIR;
     if (envDir) {
-      return resolve(envDir);
+      this.ziggyDirCache = resolve(envDir);
+      return this.ziggyDirCache;
     }
 
     // Default to ~/.ziggy
@@ -120,7 +152,8 @@ export class PlatformDetector implements IPlatformDetector {
       throw new Error('Unable to determine home directory');
     }
 
-    return join(homeDir, '.ziggy');
+    this.ziggyDirCache = join(homeDir, '.ziggy');
+    return this.ziggyDirCache;
   }
 
   /**

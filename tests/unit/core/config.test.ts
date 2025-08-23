@@ -2,11 +2,12 @@
  * Unit tests for ConfigManager
  */
 
-import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, mock as _mock } from 'bun:test';
 import { join } from 'path';
 import { ConfigManager } from '../../../src/core/config';
-import type { ZiggyConfig, DownloadStatus } from '../../../src/types';
+import type { ZiggyConfig, DownloadStatus as _DownloadStatus } from '../../../src/types';
 import type { IFileSystemManager } from '../../../src/interfaces';
+import process from "node:process";
 
 // Mock FileSystemManager
 class MockFileSystemManager implements IFileSystemManager {
@@ -53,7 +54,7 @@ class MockFileSystemManager implements IFileSystemManager {
     this.directories.delete(path);
   }
 
-  createSymlink(target: string, link: string, platform: string): void {
+  createSymlink(_target: string, _link: string, _platform: string): void {
     // Mock implementation
   }
 
@@ -102,7 +103,7 @@ describe('ConfigManager', () => {
 
     it('should load valid TOML configuration', () => {
       const tomlContent = `# Ziggy Configuration
-
+configVersion = 1
 currentVersion = "0.11.0"
 
 [downloads."0.11.0"]
@@ -139,7 +140,7 @@ isSystemWide = false
 
     it('should handle invalid TOML and attempt migration', () => {
       const legacyContent = `# Ziggy Configuration
-
+configVersion = 1
 currentVersion = "0.11.0"
 
 [downloads."0.11.0"]
@@ -177,6 +178,7 @@ status = "completed"
 
     it('should validate download status values', () => {
       const tomlContent = `# Ziggy Configuration
+configVersion = 1
 
 [downloads."0.11.0"]
 path = "/home/user/.ziggy/versions/0.11.0"
@@ -363,7 +365,7 @@ status = "completed"
   describe('migration from legacy format', () => {
     it('should migrate legacy manual parsing format', () => {
       const legacyContent = `# Ziggy Configuration
-
+configVersion = 1
 currentVersion = "0.11.0"
 
 [downloads."0.11.0"]
@@ -403,6 +405,7 @@ path =
   describe('validation', () => {
     it('should validate and sanitize download status', () => {
       const tomlContent = `# Ziggy Configuration
+configVersion = 1
 
 [downloads."0.11.0"]
 path = "/home/user/.ziggy/versions/0.11.0"
@@ -419,6 +422,7 @@ status = "unknown_status"
 
     it('should handle missing required fields', () => {
       const tomlContent = `# Ziggy Configuration
+configVersion = 1
 
 [downloads."0.11.0"]
 downloadedAt = "2024-01-15T10:30:00Z"
@@ -433,6 +437,7 @@ downloadedAt = "2024-01-15T10:30:00Z"
 
     it('should provide default downloadedAt when missing', () => {
       const tomlContent = `# Ziggy Configuration
+configVersion = 1
 
 [downloads."0.11.0"]
 path = "/home/user/.ziggy/versions/0.11.0"
