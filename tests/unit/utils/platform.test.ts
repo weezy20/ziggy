@@ -9,7 +9,6 @@ import { Buffer } from "node:buffer";
 import process from "node:process";
 
 describe('PlatformDetector', () => {
-  let _platformDetector: PlatformDetector;
   let originalPlatform: string;
   let originalArch: string;
   let originalEnv: NodeJS.ProcessEnv;
@@ -19,9 +18,6 @@ describe('PlatformDetector', () => {
     originalPlatform = process.platform;
     originalArch = process.arch;
     originalEnv = { ...process.env };
-    
-    // Create fresh instance
-    platformDetector = new PlatformDetector();
   });
 
   afterEach(() => {

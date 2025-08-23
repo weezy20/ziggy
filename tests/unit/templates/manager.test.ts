@@ -69,16 +69,16 @@ describe('TemplateManager', () => {
   });
 
   describe('createProject', () => {
-    it('should throw error when called directly', async () => {
-      await expect(
-        templateManager.createProject('standard', 'test-project', '/tmp/test')
-      ).rejects.toThrow('createProject should be called through ProjectCreator');
+    it('should throw error when called directly', () => {
+      expect(() => {
+        templateManager.createProject('standard', 'test-project', '/tmp/test');
+      }).toThrow('createProject should be called through ProjectCreator');
     });
 
-    it('should throw error for invalid template', async () => {
-      await expect(
-        templateManager.createProject('invalid', 'test-project', '/tmp/test')
-      ).rejects.toThrow("Template 'invalid' not found");
+    it('should throw error for invalid template', () => {
+      expect(() => {
+        templateManager.createProject('invalid', 'test-project', '/tmp/test');
+      }).toThrow("Template 'invalid' not found");
     });
   });
 });

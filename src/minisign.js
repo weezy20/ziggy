@@ -2,7 +2,7 @@
 // https://github.com/mlugg/setup-zig/commit/9d38a7af8e8c3b19855b3596d164a6bedf3f2885 
 
 import { Buffer } from "node:buffer";
-const sodium = require('sodium-native');
+import sodium from 'sodium-native';
 
 // Parse a minisign key represented as a base64 string.
 // Throws exceptions on invalid keys.
@@ -105,7 +105,7 @@ function verifySignature(pubkey, signature, file_content) {
   return true;
 }
 
-module.exports = {
+export {
   parseKey,
   parseSignature,
   verifySignature,
