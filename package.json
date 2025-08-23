@@ -1,6 +1,6 @@
 {
   "name": "@weezy20/ziggy",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "description": "A fast, easy to use, Zig programming language installer and version manager powered by Bun",
   "keywords": [
     "zig",
