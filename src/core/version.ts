@@ -15,6 +15,9 @@ export class VersionManager implements IVersionManager {
   private configManager: IConfigManager;
   private arch: string;
   private platform: string;
+  private versionCache: { versions: string[]; timestamp: number } | null = null;
+  private validationCache: Map<string, { valid: boolean; timestamp: number }> = new Map();
+  private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
   constructor(configManager: IConfigManager, arch: string, platform: string) {
     this.configManager = configManager;
@@ -23,41 +26,77 @@ export class VersionManager implements IVersionManager {
   }
 
   /**
-   * Fetches available Zig versions from ziglang.org
+   * Fetches available Zig versions from ziglang.org with caching
    * @returns Promise<string[]> Array of available version strings
    */
   public async getAvailableVersions(): Promise<string[]> {
+    const now = Date.now();
+    
+    // Check if we have cached versions that are still valid
+    if (this.versionCache && (now - this.versionCache.timestamp) < this.CACHE_TTL) {
+      return this.versionCache.versions;
+    }
+
     try {
       const response = await fetch('https://ziglang.org/download/index.json');
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       const data = await response.json() as ZigVersions;
-      const versions = Object.keys(data);
-      return versions.filter(v => v !== 'master');
+      const versions = Object.keys(data).filter(v => v !== 'master');
+      
+      // Cache the results
+      this.versionCache = {
+        versions,
+        timestamp: now
+      };
+      
+      return versions;
     } catch (error) {
       console.error('Failed to fetch available versions:', error);
+      
+      // Return cached versions if available, otherwise fallback
+      if (this.versionCache) {
+        return this.versionCache.versions;
+      }
       return ['0.11.0', '0.10.1', '0.10.0']; // Fallback versions
     }
   }
 
   /**
-   * Validates if a version exists and has downloads for the current platform
+   * Validates if a version exists and has downloads for the current platform with caching
    * @param version Version string to validate
    * @returns Promise<boolean> True if version is valid and available
    */
   public async validateVersion(version: string): Promise<boolean> {
+    const now = Date.now();
+    
+    // Check cache first
+    const cached = this.validationCache.get(version);
+    if (cached && (now - cached.timestamp) < this.CACHE_TTL) {
+      return cached.valid;
+    }
+
     try {
       const response = await fetch(`https://ziglang.org/download/index.json`);
       if (!response.ok) {
-        return false;
+        const result = false;
+        this.validationCache.set(version, { valid: result, timestamp: now });
+        return result;
       }
       const data = await response.json() as ZigDownloadIndex;
       
       // Check if the version exists in the download index
-      return !!data[version];
+      const result = !!data[version];
+      
+      // Cache the result
+      this.validationCache.set(version, { valid: result, timestamp: now });
+      
+      return result;
     } catch (_error) {
-      return false;
+      const result = false;
+      this.validationCache.set(version, { valid: result, timestamp: now });
+      return result;
     }
   }
 

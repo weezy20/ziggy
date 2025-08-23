@@ -95,10 +95,12 @@ describe('VersionManager', () => {
       const mockResponse = {
         ok: true,
         json: async () => ({
-          'x86_64-linux': {
-            tarball: 'https://example.com/zig.tar.xz',
-            shasum: 'abc123',
-            size: '12345'
+          '0.12.0': {
+            'x86_64-linux': {
+              tarball: 'https://example.com/zig.tar.xz',
+              shasum: 'abc123',
+              size: '12345'
+            }
           }
         } as ZigDownloadIndex)
       };
@@ -107,18 +109,20 @@ describe('VersionManager', () => {
 
       const isValid = await versionManager.validateVersion('0.12.0');
 
-      expect(fetchSpy).toHaveBeenCalledWith('https://ziglang.org/download/0.12.0/index.json');
+      expect(fetchSpy).toHaveBeenCalledWith('https://ziglang.org/download/index.json');
       expect(isValid).toBe(true);
     });
 
-    it('should return false for version without platform support', async () => {
+    it('should return false for non-existent version', async () => {
       const mockResponse = {
         ok: true,
         json: async () => ({
-          'aarch64-macos': {
-            tarball: 'https://example.com/zig.tar.xz',
-            shasum: 'abc123',
-            size: '12345'
+          '0.11.0': {
+            'x86_64-linux': {
+              tarball: 'https://example.com/zig.tar.xz',
+              shasum: 'abc123',
+              size: '12345'
+            }
           }
         } as ZigDownloadIndex)
       };

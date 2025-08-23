@@ -38,12 +38,10 @@
   },
   "dependencies": {
     "@clack/prompts": "^0.11.0",
-    "@inquirer/prompts": "^7.8.3",
     "@napi-rs/lzma": "^1.4.0",
     "@types/which": "^3.0.4",
     "commander": "^14.0.0",
     "smol-toml": "^1.4.2",
-    "sodium-native": "^4.3.3",
     "tar": "^7.4.3",
     "which": "^5.0.0",
     "zip-lib": "1.1.2"

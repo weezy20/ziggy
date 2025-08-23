@@ -193,11 +193,13 @@ export class ConfigManager implements IConfigManager {
       downloads: {} 
     };
 
-    // Handle configVersion - only set if it exists in the parsed data
+    // Handle configVersion - set from parsed data or default to current version
     if (typeof parsed.configVersion === 'number') {
       config.configVersion = parsed.configVersion;
+    } else {
+      // If no configVersion is present, assume it's an old config that needs rebuilding
+      config.configVersion = 0;
     }
-    // Note: We don't set a default configVersion here so we can detect missing versions
 
     // Handle currentVersion
     if (typeof parsed.currentVersion === 'string') {

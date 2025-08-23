@@ -7,23 +7,31 @@ import which from 'which';
 import { colors } from './utils/colors';
 import { setupCLI } from './cli';
 import { useCommand } from './commands/use';
+import { PerformanceMonitor, MemoryOptimizer } from './utils/performance';
 
-// Import all the modular components
+// Lazy loading imports - modules are loaded only when needed
+// Core modules are loaded immediately as they're always needed
 import { PlatformDetector } from './utils/platform';
 import { FileSystemManager } from './utils/filesystem';
-import { ArchiveExtractor } from './utils/archive';
-import { SpinnerProgressReporter } from './utils/progress';
 import { ConfigManager } from './core/config';
-import { VersionManager } from './core/version';
-import { MirrorsManager } from './core/mirrors';
-import { ZigInstaller as CoreZigInstaller } from './core/installer';
-import { TemplateManager } from './templates/manager.js';
-import { ProjectCreator } from './templates/creator.js';
-import { ProjectUI } from './cli/ui/project-ui.js';
-import { MainMenuUI } from './cli/ui/main-menu.js';
-import { VersionSelectorUI } from './cli/ui/version-selector.js';
-import { DownloadUI } from './cli/ui/download-ui.js';
-import { CleanupUI } from './cli/ui/cleanup-ui.js';
+
+// Lazy loaded modules - imported dynamically when needed
+type LazyModules = {
+  ArchiveExtractor?: typeof import('./utils/archive').ArchiveExtractor;
+  SpinnerProgressReporter?: typeof import('./utils/progress').SpinnerProgressReporter;
+  VersionManager?: typeof import('./core/version').VersionManager;
+  MirrorsManager?: typeof import('./core/mirrors').MirrorsManager;
+  CoreZigInstaller?: typeof import('./core/installer').ZigInstaller;
+  TemplateManager?: typeof import('./templates/manager.js').TemplateManager;
+  ProjectCreator?: typeof import('./templates/creator.js').ProjectCreator;
+  ProjectUI?: typeof import('./cli/ui/project-ui.js').ProjectUI;
+  MainMenuUI?: typeof import('./cli/ui/main-menu.js').MainMenuUI;
+  VersionSelectorUI?: typeof import('./cli/ui/version-selector.js').VersionSelectorUI;
+  DownloadUI?: typeof import('./cli/ui/download-ui.js').DownloadUI;
+  CleanupUI?: typeof import('./cli/ui/cleanup-ui.js').CleanupUI;
+};
+
+const lazyModules: LazyModules = {};
 
 // Import interfaces
 import type { 
@@ -39,17 +47,24 @@ import type {
   IMirrorsManager
 } from './interfaces';
 import type { ZigDownloadIndex, DownloadStatus, ZiggyConfig } from './types';
+import type { CleanupUI } from './cli/ui/cleanup-ui.js';
+import type { DownloadUI } from './cli/ui/download-ui.js';
+import type { VersionSelectorUI } from './cli/ui/version-selector.js';
+import type { MainMenuUI } from './cli/ui/main-menu.js';
+import type { ProjectUI } from './cli/ui/project-ui.js';
 
 export const log = console.log;
 
 /**
- * Dependency Injection Container
+ * Dependency Injection Container with Lazy Loading
  * Manages the creation and lifecycle of all application dependencies
+ * Supports lazy loading to improve startup performance
  */
 class DependencyContainer {
   private static instance: DependencyContainer;
   private dependencies: Map<string, any> = new Map();
   private singletons: Map<string, any> = new Map();
+  private lazyFactories: Map<string, () => Promise<any>> = new Map();
 
   private constructor() {}
 
@@ -64,10 +79,19 @@ class DependencyContainer {
     this.dependencies.set(key, { factory, singleton });
   }
 
+  public registerLazy<T>(key: string, factory: () => Promise<T>, singleton = true): void {
+    this.lazyFactories.set(key, factory);
+    this.dependencies.set(key, { factory: null, singleton, lazy: true });
+  }
+
   public resolve<T>(key: string): T {
     const dependency = this.dependencies.get(key);
     if (!dependency) {
       throw new Error(`Dependency '${key}' not found`);
+    }
+
+    if (dependency.lazy) {
+      throw new Error(`Dependency '${key}' is lazy and must be resolved with resolveAsync`);
     }
 
     if (dependency.singleton) {
@@ -80,9 +104,39 @@ class DependencyContainer {
     return dependency.factory();
   }
 
+  public async resolveAsync<T>(key: string): Promise<T> {
+    const dependency = this.dependencies.get(key);
+    if (!dependency) {
+      throw new Error(`Dependency '${key}' not found`);
+    }
+
+    if (dependency.lazy) {
+      if (dependency.singleton) {
+        if (!this.singletons.has(key)) {
+          const factory = this.lazyFactories.get(key);
+          if (!factory) {
+            throw new Error(`Lazy factory for '${key}' not found`);
+          }
+          this.singletons.set(key, await factory());
+        }
+        return this.singletons.get(key);
+      } else {
+        const factory = this.lazyFactories.get(key);
+        if (!factory) {
+          throw new Error(`Lazy factory for '${key}' not found`);
+        }
+        return await factory();
+      }
+    }
+
+    // Fallback to synchronous resolution
+    return this.resolve<T>(key);
+  }
+
   public clear(): void {
     this.dependencies.clear();
     this.singletons.clear();
+    this.lazyFactories.clear();
   }
 }
 
@@ -90,7 +144,7 @@ class DependencyContainer {
  * Application Factory
  * Creates and configures all application dependencies using dependency injection
  */
-class ApplicationFactory {
+export class ApplicationFactory {
   private container: DependencyContainer;
   private ziggyDir: string;
   private binDir: string;
@@ -116,19 +170,9 @@ class ApplicationFactory {
   }
 
   private setupDependencies(): void {
-    // Register utility dependencies
+    // Register core dependencies that are always needed (loaded immediately)
     this.container.register<IPlatformDetector>('platformDetector', () => new PlatformDetector());
     this.container.register<IFileSystemManager>('fileSystemManager', () => new FileSystemManager());
-    this.container.register<IProgressReporter>('progressReporter', () => new SpinnerProgressReporter());
-    
-    // Register archive extractor with dependencies
-    this.container.register<IArchiveExtractor>('archiveExtractor', () => {
-      const fileSystemManager = this.container.resolve<IFileSystemManager>('fileSystemManager');
-      const progressReporter = this.container.resolve<IProgressReporter>('progressReporter');
-      return new ArchiveExtractor(fileSystemManager, progressReporter);
-    });
-
-    // Register core dependencies
     this.container.register<IConfigManager>('configManager', () => {
       const platformDetector = this.container.resolve<IPlatformDetector>('platformDetector');
       const fileSystemManager = this.container.resolve<IFileSystemManager>('fileSystemManager');
@@ -136,28 +180,59 @@ class ApplicationFactory {
       return new ConfigManager(ziggyDir, fileSystemManager);
     });
 
-    this.container.register<IVersionManager>('versionManager', () => {
+    // Register lazy-loaded dependencies (loaded only when needed)
+    this.container.registerLazy<IProgressReporter>('progressReporter', async () => {
+      if (!lazyModules.SpinnerProgressReporter) {
+        const module = await import('./utils/progress');
+        lazyModules.SpinnerProgressReporter = module.SpinnerProgressReporter;
+      }
+      return new lazyModules.SpinnerProgressReporter();
+    });
+    
+    this.container.registerLazy<IArchiveExtractor>('archiveExtractor', async () => {
+      if (!lazyModules.ArchiveExtractor) {
+        const module = await import('./utils/archive');
+        lazyModules.ArchiveExtractor = module.ArchiveExtractor;
+      }
+      const fileSystemManager = this.container.resolve<IFileSystemManager>('fileSystemManager');
+      const progressReporter = await this.container.resolveAsync<IProgressReporter>('progressReporter');
+      return new lazyModules.ArchiveExtractor(fileSystemManager, progressReporter);
+    });
+
+    this.container.registerLazy<IVersionManager>('versionManager', async () => {
+      if (!lazyModules.VersionManager) {
+        const module = await import('./core/version');
+        lazyModules.VersionManager = module.VersionManager;
+      }
       const configManager = this.container.resolve<IConfigManager>('configManager');
       const platformDetector = this.container.resolve<IPlatformDetector>('platformDetector');
       const arch = platformDetector.getArch();
       const platform = platformDetector.getPlatform();
-      return new VersionManager(configManager, arch, platform);
+      return new lazyModules.VersionManager(configManager, arch, platform);
     });
 
-    this.container.register<IMirrorsManager>('mirrorsManager', () => {
+    this.container.registerLazy<IMirrorsManager>('mirrorsManager', async () => {
+      if (!lazyModules.MirrorsManager) {
+        const module = await import('./core/mirrors');
+        lazyModules.MirrorsManager = module.MirrorsManager;
+      }
       const configManager = this.container.resolve<IConfigManager>('configManager');
-      return new MirrorsManager(configManager);
+      return new lazyModules.MirrorsManager(configManager);
     });
 
-    this.container.register<IZigInstaller>('coreInstaller', () => {
+    this.container.registerLazy<IZigInstaller>('coreInstaller', async () => {
+      if (!lazyModules.CoreZigInstaller) {
+        const module = await import('./core/installer');
+        lazyModules.CoreZigInstaller = module.ZigInstaller;
+      }
       const configManager = this.container.resolve<IConfigManager>('configManager');
-      const versionManager = this.container.resolve<IVersionManager>('versionManager');
+      const versionManager = await this.container.resolveAsync<IVersionManager>('versionManager');
       const platformDetector = this.container.resolve<IPlatformDetector>('platformDetector');
       const fileSystemManager = this.container.resolve<IFileSystemManager>('fileSystemManager');
-      const archiveExtractor = this.container.resolve<IArchiveExtractor>('archiveExtractor');
-      const mirrorsManager = this.container.resolve<IMirrorsManager>('mirrorsManager');
+      const archiveExtractor = await this.container.resolveAsync<IArchiveExtractor>('archiveExtractor');
+      const mirrorsManager = await this.container.resolveAsync<IMirrorsManager>('mirrorsManager');
       const ziggyDir = platformDetector.getZiggyDir();
-      return new CoreZigInstaller(
+      return new lazyModules.CoreZigInstaller(
         configManager,
         versionManager,
         platformDetector,
@@ -168,13 +243,22 @@ class ApplicationFactory {
       );
     });
 
-    // Register template dependencies
-    this.container.register<ITemplateManager>('templateManager', () => new TemplateManager());
+    this.container.registerLazy<ITemplateManager>('templateManager', async () => {
+      if (!lazyModules.TemplateManager) {
+        const module = await import('./templates/manager.js');
+        lazyModules.TemplateManager = module.TemplateManager;
+      }
+      return new lazyModules.TemplateManager();
+    });
     
-    this.container.register<IProjectCreator>('projectCreator', () => {
-      const templateManager = this.container.resolve<ITemplateManager>('templateManager');
+    this.container.registerLazy<IProjectCreator>('projectCreator', async () => {
+      if (!lazyModules.ProjectCreator) {
+        const module = await import('./templates/creator.js');
+        lazyModules.ProjectCreator = module.ProjectCreator;
+      }
+      const templateManager = await this.container.resolveAsync<ITemplateManager>('templateManager');
       const fileSystemManager = this.container.resolve<IFileSystemManager>('fileSystemManager');
-      return new ProjectCreator(templateManager, fileSystemManager);
+      return new lazyModules.ProjectCreator(templateManager, fileSystemManager);
     });
   }
 
@@ -255,16 +339,12 @@ export class ZigInstaller {
     this.envPath = envPath;
     this.cwd = process.cwd();
 
-    // Resolve dependencies from container
+    // Resolve core dependencies immediately (always needed)
     this.platformDetector = container.resolve<IPlatformDetector>('platformDetector');
     this.fileSystemManager = container.resolve<IFileSystemManager>('fileSystemManager');
     this.configManager = container.resolve<IConfigManager>('configManager');
-    this.versionManager = container.resolve<IVersionManager>('versionManager');
-    this.coreInstaller = container.resolve<IZigInstaller>('coreInstaller');
-    this.templateManager = container.resolve<ITemplateManager>('templateManager');
-    this.projectCreator = container.resolve<IProjectCreator>('projectCreator');
 
-    // Get platform info
+    // Get platform info (cached after first call)
     this.arch = this.platformDetector.getArch();
     this.platform = this.platformDetector.getPlatform();
     this.os = this.platformDetector.getOS();
@@ -272,19 +352,47 @@ export class ZigInstaller {
     // Load configuration
     this.config = this.configManager.load();
     
-    // Detect system Zig
-    this.detectSystemZig();
-    
-    // Initialize UI modules with dependency injection
-    this.initializeUIModules();
-    
-    // Cleanup any incomplete downloads from previous sessions
-    this.cleanupIncompleteDownloads();
+    // Defer non-critical operations to improve startup time
+    // These will be done asynchronously when needed
+    process.nextTick(() => {
+      this.detectSystemZig();
+      this.cleanupIncompleteDownloads();
+    });
+
+    // Note: Other dependencies and UI modules are loaded lazily when needed
   }
 
-  private initializeUIModules(): void {
+  private async initializeUIModules(): Promise<void> {
+    // Lazy load dependencies
+    this.versionManager = await this.container.resolveAsync<IVersionManager>('versionManager');
+    this.coreInstaller = await this.container.resolveAsync<IZigInstaller>('coreInstaller');
+    this.templateManager = await this.container.resolveAsync<ITemplateManager>('templateManager');
+    this.projectCreator = await this.container.resolveAsync<IProjectCreator>('projectCreator');
+
+    // Lazy load UI modules
+    if (!lazyModules.ProjectUI) {
+      const module = await import('./cli/ui/project-ui.js');
+      lazyModules.ProjectUI = module.ProjectUI;
+    }
+    if (!lazyModules.MainMenuUI) {
+      const module = await import('./cli/ui/main-menu.js');
+      lazyModules.MainMenuUI = module.MainMenuUI;
+    }
+    if (!lazyModules.VersionSelectorUI) {
+      const module = await import('./cli/ui/version-selector.js');
+      lazyModules.VersionSelectorUI = module.VersionSelectorUI;
+    }
+    if (!lazyModules.DownloadUI) {
+      const module = await import('./cli/ui/download-ui.js');
+      lazyModules.DownloadUI = module.DownloadUI;
+    }
+    if (!lazyModules.CleanupUI) {
+      const module = await import('./cli/ui/cleanup-ui.js');
+      lazyModules.CleanupUI = module.CleanupUI;
+    }
+
     // Initialize Template UI
-    this.projectUI = new ProjectUI(
+    this.projectUI = new lazyModules.ProjectUI(
       this.templateManager,
       this.projectCreator,
       this.fileSystemManager,
@@ -293,7 +401,7 @@ export class ZigInstaller {
     );
     
     // Initialize Main Menu UI
-    this.mainMenuUI = new MainMenuUI(
+    this.mainMenuUI = new lazyModules.MainMenuUI(
       this.platformDetector,
       this.fileSystemManager,
       this.versionManager,
@@ -311,7 +419,7 @@ export class ZigInstaller {
     );
     
     // Initialize Version Selector UI
-    this.versionSelectorUI = new VersionSelectorUI(
+    this.versionSelectorUI = new lazyModules.VersionSelectorUI(
       this.versionManager,
       this.config,
       () => this.getAvailableVersions(),
@@ -319,7 +427,7 @@ export class ZigInstaller {
     );
     
     // Initialize Download UI
-    this.downloadUI = new DownloadUI(
+    this.downloadUI = new lazyModules.DownloadUI(
       this.platformDetector,
       this.fileSystemManager,
       this.versionManager,
@@ -333,7 +441,7 @@ export class ZigInstaller {
     );
     
     // Initialize Cleanup UI
-    this.cleanupUI = new CleanupUI(
+    this.cleanupUI = new lazyModules.CleanupUI(
       this.fileSystemManager,
       this.versionManager,
       this.configManager,
@@ -374,26 +482,44 @@ export class ZigInstaller {
 
   // Delegate core installer methods for backward compatibility
   public async downloadVersion(version: string): Promise<void> {
+    if (!this.coreInstaller) {
+      this.coreInstaller = await this.container.resolveAsync<IZigInstaller>('coreInstaller');
+    }
     return this.coreInstaller.downloadVersion(version);
   }
 
   public async downloadWithVersion(version: string): Promise<void> {
+    if (!this.coreInstaller) {
+      this.coreInstaller = await this.container.resolveAsync<IZigInstaller>('coreInstaller');
+    }
     return this.coreInstaller.downloadVersion(version);
   }
 
-  public useVersion(version: string): void {
+  public async useVersion(version: string): Promise<void> {
+    if (!this.coreInstaller) {
+      this.coreInstaller = await this.container.resolveAsync<IZigInstaller>('coreInstaller');
+    }
     return this.coreInstaller.useVersion(version);
   }
 
-  public getInstalledVersions(): string[] {
+  public async getInstalledVersions(): Promise<string[]> {
+    if (!this.coreInstaller) {
+      this.coreInstaller = await this.container.resolveAsync<IZigInstaller>('coreInstaller');
+    }
     return this.coreInstaller.getInstalledVersions();
   }
 
   public async validateVersion(version: string): Promise<boolean> {
+    if (!this.coreInstaller) {
+      this.coreInstaller = await this.container.resolveAsync<IZigInstaller>('coreInstaller');
+    }
     return this.coreInstaller.validateVersion(version);
   }
 
   public async cleanup(): Promise<void> {
+    if (!this.coreInstaller) {
+      this.coreInstaller = await this.container.resolveAsync<IZigInstaller>('coreInstaller');
+    }
     return this.coreInstaller.cleanup();
   }
 
@@ -657,8 +783,21 @@ export PATH="${this.binDir}:$PATH"
   }
 
   public async run(): Promise<void> {
-    // Start the TUI interface
-    await this.runTUI();
+    const monitor = PerformanceMonitor.getInstance();
+    monitor.startTimer('ziggy-startup');
+    
+    try {
+      // Initialize UI modules lazily when needed
+      await this.initializeUIModules();
+      
+      monitor.endTimer('ziggy-startup');
+      
+      // Start the TUI interface
+      await this.runTUI();
+    } catch (error) {
+      monitor.endTimer('ziggy-startup');
+      throw error;
+    }
   }
 
   private displayHeaderWithInfo(): void {
@@ -731,10 +870,16 @@ export PATH="${this.binDir}:$PATH"
 
   // Additional methods for backward compatibility
   public async getAvailableVersions(): Promise<string[]> {
+    if (!this.versionManager) {
+      this.versionManager = await this.container.resolveAsync<IVersionManager>('versionManager');
+    }
     return this.versionManager.getAvailableVersions();
   }
 
   public async getLatestStableVersion(): Promise<string> {
+    if (!this.versionManager) {
+      this.versionManager = await this.container.resolveAsync<IVersionManager>('versionManager');
+    }
     return this.versionManager.getLatestStableVersion();
   }
 
