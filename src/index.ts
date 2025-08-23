@@ -2,20 +2,13 @@
 
 import { ZIG_ASCII_ART } from './ascii-art';
 import { join, resolve, dirname } from 'path';
-// File system operations are now handled by FileSystemManager
-
 import * as clack from '@clack/prompts';
 import which from 'which';
-import { TemplateManager } from './templates/manager.js';
-import { ProjectCreator } from './templates/creator.js';
-import { ProjectUI } from './cli/ui/project-ui.js';
-import { MainMenuUI } from './cli/ui/main-menu.js';
-import { VersionSelectorUI } from './cli/ui/version-selector.js';
-import { DownloadUI } from './cli/ui/download-ui.js';
-import { CleanupUI } from './cli/ui/cleanup-ui.js';
 import { colors } from './utils/colors';
 import { setupCLI } from './cli';
 import { useCommand } from './commands/use';
+
+// Import all the modular components
 import { PlatformDetector } from './utils/platform';
 import { FileSystemManager } from './utils/filesystem';
 import { ArchiveExtractor } from './utils/archive';
@@ -23,23 +16,190 @@ import { SpinnerProgressReporter } from './utils/progress';
 import { ConfigManager } from './core/config';
 import { VersionManager } from './core/version';
 import { ZigInstaller as CoreZigInstaller } from './core/installer';
+import { TemplateManager } from './templates/manager.js';
+import { ProjectCreator } from './templates/creator.js';
+import { ProjectUI } from './cli/ui/project-ui.js';
+import { MainMenuUI } from './cli/ui/main-menu.js';
+import { VersionSelectorUI } from './cli/ui/version-selector.js';
+import { DownloadUI } from './cli/ui/download-ui.js';
+import { CleanupUI } from './cli/ui/cleanup-ui.js';
+
+// Import interfaces
+import type { 
+  IZigInstaller, 
+  IConfigManager, 
+  IVersionManager, 
+  IPlatformDetector,
+  IFileSystemManager,
+  IArchiveExtractor,
+  ITemplateManager,
+  IProjectCreator,
+  IProgressReporter
+} from './interfaces';
 import type { ZigDownloadIndex, DownloadStatus, ZiggyConfig } from './types';
+
 export const log = console.log;
 
-// Handle Ctrl+C gracefully
-let currentDownload: { cleanup?: () => void } | null = null;
+/**
+ * Dependency Injection Container
+ * Manages the creation and lifecycle of all application dependencies
+ */
+class DependencyContainer {
+  private static instance: DependencyContainer;
+  private dependencies: Map<string, any> = new Map();
+  private singletons: Map<string, any> = new Map();
 
-function setupSignalHandlers() {
+  private constructor() {}
+
+  public static getInstance(): DependencyContainer {
+    if (!DependencyContainer.instance) {
+      DependencyContainer.instance = new DependencyContainer();
+    }
+    return DependencyContainer.instance;
+  }
+
+  public register<T>(key: string, factory: () => T, singleton = true): void {
+    this.dependencies.set(key, { factory, singleton });
+  }
+
+  public resolve<T>(key: string): T {
+    const dependency = this.dependencies.get(key);
+    if (!dependency) {
+      throw new Error(`Dependency '${key}' not found`);
+    }
+
+    if (dependency.singleton) {
+      if (!this.singletons.has(key)) {
+        this.singletons.set(key, dependency.factory());
+      }
+      return this.singletons.get(key);
+    }
+
+    return dependency.factory();
+  }
+
+  public clear(): void {
+    this.dependencies.clear();
+    this.singletons.clear();
+  }
+}
+
+/**
+ * Application Factory
+ * Creates and configures all application dependencies using dependency injection
+ */
+class ApplicationFactory {
+  private container: DependencyContainer;
+  private ziggyDir: string;
+  private binDir: string;
+  private envPath: string;
+  private platform: string;
+
+  constructor() {
+    this.container = DependencyContainer.getInstance();
+    this.setupDependencies();
+    
+    // Get platform info for paths
+    const platformDetector = this.container.resolve<IPlatformDetector>('platformDetector');
+    this.platform = platformDetector.getPlatform();
+    this.ziggyDir = platformDetector.getZiggyDir();
+    this.binDir = join(this.ziggyDir, 'bin');
+    
+    // Platform-specific env file names
+    if (this.platform === 'windows') {
+      this.envPath = join(this.ziggyDir, 'env.ps1'); // PowerShell script
+    } else {
+      this.envPath = join(this.ziggyDir, 'env'); // Bash/Zsh script
+    }
+  }
+
+  private setupDependencies(): void {
+    // Register utility dependencies
+    this.container.register<IPlatformDetector>('platformDetector', () => new PlatformDetector());
+    this.container.register<IFileSystemManager>('fileSystemManager', () => new FileSystemManager());
+    this.container.register<IProgressReporter>('progressReporter', () => new SpinnerProgressReporter());
+    
+    // Register archive extractor with dependencies
+    this.container.register<IArchiveExtractor>('archiveExtractor', () => {
+      const fileSystemManager = this.container.resolve<IFileSystemManager>('fileSystemManager');
+      const progressReporter = this.container.resolve<IProgressReporter>('progressReporter');
+      return new ArchiveExtractor(fileSystemManager, progressReporter);
+    });
+
+    // Register core dependencies
+    this.container.register<IConfigManager>('configManager', () => {
+      const platformDetector = this.container.resolve<IPlatformDetector>('platformDetector');
+      const fileSystemManager = this.container.resolve<IFileSystemManager>('fileSystemManager');
+      const ziggyDir = platformDetector.getZiggyDir();
+      return new ConfigManager(ziggyDir, fileSystemManager);
+    });
+
+    this.container.register<IVersionManager>('versionManager', () => {
+      const configManager = this.container.resolve<IConfigManager>('configManager');
+      const platformDetector = this.container.resolve<IPlatformDetector>('platformDetector');
+      const arch = platformDetector.getArch();
+      const platform = platformDetector.getPlatform();
+      return new VersionManager(configManager, arch, platform);
+    });
+
+    this.container.register<IZigInstaller>('coreInstaller', () => {
+      const configManager = this.container.resolve<IConfigManager>('configManager');
+      const versionManager = this.container.resolve<IVersionManager>('versionManager');
+      const platformDetector = this.container.resolve<IPlatformDetector>('platformDetector');
+      const fileSystemManager = this.container.resolve<IFileSystemManager>('fileSystemManager');
+      const archiveExtractor = this.container.resolve<IArchiveExtractor>('archiveExtractor');
+      const ziggyDir = platformDetector.getZiggyDir();
+      return new CoreZigInstaller(
+        configManager,
+        versionManager,
+        platformDetector,
+        fileSystemManager,
+        archiveExtractor,
+        ziggyDir
+      );
+    });
+
+    // Register template dependencies
+    this.container.register<ITemplateManager>('templateManager', () => new TemplateManager());
+    
+    this.container.register<IProjectCreator>('projectCreator', () => {
+      const templateManager = this.container.resolve<ITemplateManager>('templateManager');
+      const fileSystemManager = this.container.resolve<IFileSystemManager>('fileSystemManager');
+      return new ProjectCreator(templateManager, fileSystemManager);
+    });
+  }
+
+  public createZigInstaller(): ZigInstaller {
+    // Ensure directories exist
+    const fileSystemManager = this.container.resolve<IFileSystemManager>('fileSystemManager');
+    fileSystemManager.ensureDirectory(this.ziggyDir);
+    fileSystemManager.ensureDirectory(this.binDir);
+
+    return new ZigInstaller(this.container, this.ziggyDir, this.binDir, this.envPath);
+  }
+
+  public getContainer(): DependencyContainer {
+    return this.container;
+  }
+}
+
+// Global reference to current download for signal handling
+let currentInstaller: ZigInstaller | null = null;
+
+function setupSignalHandlers(): void {
   const gracefulExit = () => {
     log(colors.yellow('\n\n🛑 Interrupt: Shutting down ...'));
 
     // Clean up any ongoing downloads
-    if (currentDownload?.cleanup) {
-      try {
-        currentDownload.cleanup();
-        log(colors.yellow('✓ Download cleanup completed'));
-      } catch (_error) {
-        log(colors.red('⚠ Download cleanup failed'));
+    if (currentInstaller) {
+      const currentDownload = currentInstaller.getCurrentDownload();
+      if (currentDownload?.cleanup) {
+        try {
+          currentDownload.cleanup();
+          log(colors.yellow('✓ Download cleanup completed'));
+        } catch (_error) {
+          log(colors.red('⚠ Download cleanup failed'));
+        }
       }
     }
 
@@ -53,38 +213,18 @@ function setupSignalHandlers() {
 
 
 
-// Console colors using ANSI escape codes
-
-// Simple progress bar utility
-function createProgressBar(current: number, total: number, width: number = 40): string {
-  const percentage = Math.round((current / total) * 100);
-  const filled = Math.round((current / total) * width);
-  const empty = width - filled;
-
-  const bar = '█'.repeat(filled) + '░'.repeat(empty);
-  return `[${bar}] ${percentage}% (${formatBytes(current)}/${formatBytes(total)})`;
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-}
-
-// Simple prompt utility using Bun's stdin
+// Utility functions are now handled by dedicated modules
 
 
 export class ZigInstaller {
-  private platformDetector: PlatformDetector;
-  private fileSystemManager: FileSystemManager;
-  private archiveExtractor: ArchiveExtractor;
-  private configManager: ConfigManager;
-  private versionManager: VersionManager;
-  private coreInstaller: CoreZigInstaller;
-  private templateManager: TemplateManager;
-  private projectCreator: ProjectCreator;
+  private container: DependencyContainer;
+  private platformDetector: IPlatformDetector;
+  private fileSystemManager: IFileSystemManager;
+  private configManager: IConfigManager;
+  private versionManager: IVersionManager;
+  private coreInstaller: IZigInstaller;
+  private templateManager: ITemplateManager;
+  private projectCreator: IProjectCreator;
   private projectUI: ProjectUI;
   private mainMenuUI: MainMenuUI;
   private versionSelectorUI: VersionSelectorUI;
@@ -99,52 +239,42 @@ export class ZigInstaller {
   public envPath: string;
   public config: ZiggyConfig;
 
-  constructor() {
-    this.platformDetector = new PlatformDetector();
-    this.fileSystemManager = new FileSystemManager();
-    const progressReporter = new SpinnerProgressReporter();
-    this.archiveExtractor = new ArchiveExtractor(this.fileSystemManager, progressReporter);
+  constructor(container: DependencyContainer, ziggyDir: string, binDir: string, envPath: string) {
+    this.container = container;
+    this.ziggyDir = ziggyDir;
+    this.binDir = binDir;
+    this.envPath = envPath;
+    this.cwd = process.cwd();
+
+    // Resolve dependencies from container
+    this.platformDetector = container.resolve<IPlatformDetector>('platformDetector');
+    this.fileSystemManager = container.resolve<IFileSystemManager>('fileSystemManager');
+    this.configManager = container.resolve<IConfigManager>('configManager');
+    this.versionManager = container.resolve<IVersionManager>('versionManager');
+    this.coreInstaller = container.resolve<IZigInstaller>('coreInstaller');
+    this.templateManager = container.resolve<ITemplateManager>('templateManager');
+    this.projectCreator = container.resolve<IProjectCreator>('projectCreator');
+
+    // Get platform info
     this.arch = this.platformDetector.getArch();
     this.platform = this.platformDetector.getPlatform();
     this.os = this.platformDetector.getOS();
-    this.cwd = process.cwd();
-    this.ziggyDir = this.platformDetector.getZiggyDir();
-    this.binDir = join(this.ziggyDir, 'bin');
 
-    // Platform-specific env file names
-    if (this.platform === 'windows') {
-      this.envPath = join(this.ziggyDir, 'env.ps1'); // PowerShell script
-    } else {
-      this.envPath = join(this.ziggyDir, 'env'); // Bash/Zsh script
-    }
-
-    // Ensure directories exist
-    this.fileSystemManager.ensureDirectory(this.ziggyDir);
-    this.fileSystemManager.ensureDirectory(this.binDir);
-
-    // Initialize ConfigManager
-    this.configManager = new ConfigManager(this.ziggyDir, this.fileSystemManager);
+    // Load configuration
     this.config = this.configManager.load();
     
-    // Initialize VersionManager
-    this.versionManager = new VersionManager(this.configManager, this.arch, this.platform);
-    
-    // Detect system Zig before creating core installer
+    // Detect system Zig
     this.detectSystemZig();
     
-    // Initialize Core Installer with dependency injection
-    this.coreInstaller = new CoreZigInstaller(
-      this.configManager,
-      this.versionManager,
-      this.platformDetector,
-      this.fileSystemManager,
-      this.archiveExtractor,
-      this.ziggyDir
-    );
+    // Initialize UI modules with dependency injection
+    this.initializeUIModules();
     
-    // Initialize Template System
-    this.templateManager = new TemplateManager();
-    this.projectCreator = new ProjectCreator(this.templateManager, this.fileSystemManager);
+    // Cleanup any incomplete downloads from previous sessions
+    this.cleanupIncompleteDownloads();
+  }
+
+  private initializeUIModules(): void {
+    // Initialize Template UI
     this.projectUI = new ProjectUI(
       this.templateManager,
       this.projectCreator,
@@ -153,7 +283,7 @@ export class ZigInstaller {
       this.config
     );
     
-    // Initialize UI modules
+    // Initialize Main Menu UI
     this.mainMenuUI = new MainMenuUI(
       this.platformDetector,
       this.fileSystemManager,
@@ -171,6 +301,7 @@ export class ZigInstaller {
       () => this.handleCleanTUI()
     );
     
+    // Initialize Version Selector UI
     this.versionSelectorUI = new VersionSelectorUI(
       this.versionManager,
       this.config,
@@ -178,6 +309,7 @@ export class ZigInstaller {
       () => this.showPostActionOptions()
     );
     
+    // Initialize Download UI
     this.downloadUI = new DownloadUI(
       this.platformDetector,
       this.fileSystemManager,
@@ -191,6 +323,7 @@ export class ZigInstaller {
       () => this.createEnvFile()
     );
     
+    // Initialize Cleanup UI
     this.cleanupUI = new CleanupUI(
       this.fileSystemManager,
       this.versionManager,
@@ -201,11 +334,9 @@ export class ZigInstaller {
       () => this.showPostActionOptions(),
       () => { this.config = this.configManager.load(); }
     );
-    
-    this.cleanupIncompleteDownloads();
   }
 
-  private detectSystemZig() {
+  private detectSystemZig(): void {
     try {
       const zigPath = which.sync('zig', { nothrow: true });
       if (zigPath && !zigPath.includes(this.ziggyDir)) {
@@ -221,6 +352,40 @@ export class ZigInstaller {
     } catch (_error) {
       // System zig not found or not accessible
     }
+  }
+
+  // Public API methods for backward compatibility and external integrations
+  public getCurrentDownload(): { cleanup?: () => void } | null {
+    return this.coreInstaller.getCurrentDownload();
+  }
+
+  public getConfigManager(): IConfigManager {
+    return this.configManager;
+  }
+
+  // Delegate core installer methods for backward compatibility
+  public async downloadVersion(version: string): Promise<void> {
+    return this.coreInstaller.downloadVersion(version);
+  }
+
+  public async downloadWithVersion(version: string): Promise<void> {
+    return this.coreInstaller.downloadVersion(version);
+  }
+
+  public useVersion(version: string): void {
+    return this.coreInstaller.useVersion(version);
+  }
+
+  public getInstalledVersions(): string[] {
+    return this.coreInstaller.getInstalledVersions();
+  }
+
+  public async validateVersion(version: string): Promise<boolean> {
+    return this.coreInstaller.validateVersion(version);
+  }
+
+  public async cleanup(): Promise<void> {
+    return this.coreInstaller.cleanup();
   }
 
   private cleanupIncompleteDownloads() {
@@ -333,325 +498,9 @@ export PATH="${this.binDir}:$PATH"
 
 
 
-  private scanExistingInstallations(): ZiggyConfig {
-    const config: ZiggyConfig = { downloads: {} };
-    const versionsDir = join(this.ziggyDir, 'versions');
-
-    if (!this.fileSystemManager.fileExists(versionsDir)) {
-      return config;
-    }
-
-    log(colors.yellow('📁 No ziggy.toml found. Scanning existing installations...'));
-
-    const versionDirs = this.fileSystemManager.listDirectory(versionsDir).filter(dir => {
-      const fullPath = join(versionsDir, dir);
-      return this.fileSystemManager.isDirectory(fullPath);
-    });
-
-    if (versionDirs.length === 0) {
-      return config;
-    }
-
-    log(colors.cyan(`Found ${versionDirs.length} potential installation(s). Scanning...`));
-
-    // Simple progress bar
-    const progressWidth = 30;
-    let processed = 0;
-
-    for (const versionDir of versionDirs) {
-      const versionPath = join(versionsDir, versionDir);
-
-      // Update progress bar
-      processed++;
-      const progress = processed / versionDirs.length;
-      const filled = Math.floor(progress * progressWidth);
-      const bar = '█'.repeat(filled) + '░'.repeat(progressWidth - filled);
-      const percentage = Math.floor(progress * 100);
-
-      process.stdout.write(`\r${colors.cyan('Scanning:')} [${bar}] ${percentage}% (${versionDir})`);
-
-      // Look for zig binary directly in the version directory
-      const zigBinary = join(versionPath, 'zig');
-
-      if (this.fileSystemManager.fileExists(zigBinary)) {
-        // Try to get version from zig binary
-        let version = versionDir;
-
-        try {
-          const versionResult = Bun.spawnSync([zigBinary, 'version'], {
-            stdout: 'pipe',
-            timeout: 5000 // 5 second timeout
-          });
-          if (versionResult.exitCode === 0) {
-            version = versionResult.stdout.toString().trim();
-          }
-        } catch (_error) {
-          // Fall back to directory name
-          version = versionDir;
-        }
-
-        config.downloads[version] = {
-          version: version,
-          path: versionPath,
-          status: 'completed',
-          downloadedAt: new Date().toISOString()
-        };
-      } else {
-        // Look for extracted Zig installations (old format)
-        const contents = this.fileSystemManager.listDirectory(versionPath);
-        const zigExtraction = contents.find(item =>
-          item.startsWith('zig-') && this.fileSystemManager.isDirectory(join(versionPath, item))
-        );
-
-        if (zigExtraction) {
-          // Check if zig binary exists in subdirectory
-          const zigBinaryInSubdir = join(versionPath, zigExtraction, 'zig');
-          if (this.fileSystemManager.fileExists(zigBinaryInSubdir)) {
-            // Try to get version from directory name or binary
-            let version = versionDir;
-
-            try {
-              const versionResult = Bun.spawnSync([zigBinaryInSubdir, 'version'], {
-                stdout: 'pipe',
-                timeout: 5000
-              });
-              if (versionResult.exitCode === 0) {
-                version = versionResult.stdout.toString().trim();
-              }
-            } catch (_error) {
-              version = versionDir;
-            }
-
-            config.downloads[version] = {
-              version: version,
-              path: versionPath,
-              status: 'completed',
-              downloadedAt: new Date().toISOString()
-            };
-          }
-        }
-      }
-    }
-
-    // Clear progress bar line
-    process.stdout.write('\r' + ' '.repeat(60) + '\r');
-
-    const foundCount = Object.keys(config.downloads).length;
-    if (foundCount > 0) {
-      log(colors.green(`✓ Found ${foundCount} valid Zig installation(s):`));
-      for (const version of Object.keys(config.downloads)) {
-        log(colors.cyan(`  • ${version}`));
-      }
-      log(colors.yellow('Rebuilding ziggy.toml configuration...\n'));
-    } else {
-      log(colors.yellow('No valid Zig installations found in versions directory.\n'));
-    }
-
-    return config;
-  }
-
-  private parseSimpleToml(content: string): Partial<ZiggyConfig> {
-    // Simple TOML parser for our specific structure
-    const config: Partial<ZiggyConfig> = { downloads: {} };
-    const lines = content.split('\n');
-    let currentSection = '';
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-
-      if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
-        currentSection = trimmed.slice(1, -1);
-        continue;
-      }
-
-      // Check for currentVersion
-      if (trimmed.startsWith('currentVersion = ')) {
-        config.currentVersion = trimmed.split('=')[1]?.trim().replace(/"/g, '');
-        continue;
-      }
-
-      if (currentSection.startsWith('downloads.')) {
-        let version = currentSection.substring('downloads.'.length);
-        // Remove quotes if present
-        if (version.startsWith('"') && version.endsWith('"')) {
-          version = version.slice(1, -1);
-        }
-        if (!version) continue;
-
-        if (!config.downloads![version]) {
-          config.downloads![version] = {
-            version: version,
-            path: '',
-            downloadedAt: '',
-            status: 'completed'
-          };
-        }
-
-        const parts = trimmed.split('=');
-        if (parts.length < 2) continue;
-
-        const key = parts[0]?.trim();
-        const value = parts.slice(1).join('=').trim().replace(/"/g, '');
-
-        if (!key) continue;
-
-        if (key === 'path') config.downloads![version]!.path = value;
-        if (key === 'downloadedAt') config.downloads![version]!.downloadedAt = value;
-        if (key === 'status') config.downloads![version]!.status = value as DownloadStatus;
-        if (key === 'isSystemWide') config.downloads![version]!.isSystemWide = value === 'true';
-      }
-    }
-
-    return config;
-  }
-
+  // Legacy methods - now handled by ConfigManager and VersionManager
   private saveConfig(): void {
-    // Legacy method - now handled by ConfigManager
     this.configManager.save(this.config);
-  }
-
-  private generateToml(config: ZiggyConfig): string {
-    // Legacy method - now handled by ConfigManager  
-    // This method is no longer used but kept for compatibility
-    return '';
-  }
-
-
-
-
-
-
-
-
-
-  public async getAvailableVersions(): Promise<string[]> {
-    return this.versionManager.getAvailableVersions();
-  }
-
-  public async validateVersion(version: string): Promise<boolean> {
-    return this.versionManager.validateVersion(version);
-  }
-
-  private async downloadZig(version: string, installPath: string): Promise<void> {
-    log(colors.blue(`Getting download info for Zig ${version}...`));
-
-    try {
-      const response = await fetch(`https://ziglang.org/download/index.json`);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch download info: ${response.status}`);
-      }
-
-      const downloadData = await response.json() as ZigDownloadIndex;
-      const archKey = `${this.arch}-${this.platform}`;
-
-      if (!downloadData[version]) {
-        throw new Error(`Version ${version} not found`);
-      }
-
-      const versionData = downloadData[version];
-      if (!versionData[archKey]) {
-        throw new Error(`No download available for ${archKey} architecture`);
-      }
-
-      const downloadInfo = versionData[archKey];
-      const zigUrl = downloadInfo.tarball;
-      const ext = this.platformDetector.getArchiveExtension();
-      const zigTar = `zig-${this.platform}-${this.arch}-${version}.${ext}`;
-      const tarPath = join(installPath, zigTar);
-
-      log(colors.blue(`Downloading Zig ${version}...`));
-
-      const downloadResponse = await fetch(zigUrl);
-      if (!downloadResponse.ok) {
-        throw new Error(`HTTP error! status: ${downloadResponse.status}`);
-      }
-
-      const contentLength = parseInt(downloadResponse.headers.get('content-length') || '0');
-
-      // Create directory if it doesn't exist
-      this.fileSystemManager.ensureDirectory(installPath);
-
-      // Download the file
-      const writer = this.fileSystemManager.createWriteStream(tarPath);
-      const reader = downloadResponse.body?.getReader();
-
-      if (!reader) {
-        throw new Error('Failed to get response stream');
-      }
-
-      let downloadedBytes = 0;
-      let lastProgress = '';
-
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          writer.write(value);
-          downloadedBytes += value.length;
-
-          if (contentLength > 0) {
-            const progressBar = createProgressBar(downloadedBytes, contentLength);
-            if (progressBar !== lastProgress) {
-              process.stdout.write('\r' + ' '.repeat(80) + '\r');
-              process.stdout.write(colors.cyan(progressBar));
-              lastProgress = progressBar;
-            }
-          } else {
-            process.stdout.write('\r' + ' '.repeat(40) + '\r');
-            process.stdout.write(colors.cyan(`Downloaded: ${formatBytes(downloadedBytes)}`));
-          }
-        }
-      } finally {
-        reader.releaseLock();
-        // End the write stream properly
-        writer.end();
-      }
-
-      // Wait for the file to be completedly written
-      await new Promise<void>((resolve, reject) => {
-        writer.on('finish', resolve);
-        writer.on('error', reject);
-      });
-
-      process.stdout.write('\r' + ' '.repeat(80) + '\r');
-      log(colors.green('Download completed!'));
-
-      // Extract the archive
-      log(colors.blue('Starting extraction process...'));
-
-      const spinnerChars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-      let spinnerIndex = 0;
-
-      const spinnerInterval = setInterval(() => {
-        process.stdout.write(`\r${colors.cyan(spinnerChars[spinnerIndex]!)} Extracting files...`);
-        spinnerIndex = (spinnerIndex + 1) % spinnerChars.length;
-      }, 100);
-
-      try {
-        log(colors.yellow(`\nExtracting ${tarPath} to ${installPath}...`));
-
-        await this.archiveExtractor.extractArchive(tarPath, installPath);
-
-        clearInterval(spinnerInterval);
-        process.stdout.write('\r' + ' '.repeat(30) + '\r');
-        log(colors.green('✓ Extraction completed!'));
-      } catch (extractError) {
-        clearInterval(spinnerInterval);
-        process.stdout.write('\r' + ' '.repeat(30) + '\r');
-        console.error(colors.red('Extraction failed:'), extractError);
-        throw extractError;
-      }
-
-      // Clean up the downloaded archive
-      log(colors.blue('Cleaning up downloaded archive...'));
-      this.fileSystemManager.safeRemove(tarPath);
-      log(colors.green('✓ Installation completed!'));
-
-    } catch (error) {
-      throw new Error(`Failed to download Zig: ${error}`);
-    }
   }
 
 
@@ -863,26 +712,88 @@ export PATH="${this.binDir}:$PATH"
     }
   }
 
-
-
-  public useVersion(selectedVersion: string): void {
-    // Delegate to core installer
-    this.coreInstaller.useVersion(selectedVersion);
-    
-    // Reload config after version change
-    this.config = this.configManager.load();
-  }
-
-  public getConfigManager(): ConfigManager {
-    return this.configManager;
-  }
-
   public async listVersionsTUI(): Promise<void> {
     await this.versionSelectorUI.listVersionsTUI();
   }
 
   public async handleCleanTUI(): Promise<void> {
     await this.cleanupUI.handleCleanTUI();
+  }
+
+  // Additional methods for backward compatibility
+  public async getAvailableVersions(): Promise<string[]> {
+    return this.versionManager.getAvailableVersions();
+  }
+
+  public async getLatestStableVersion(): Promise<string> {
+    return this.versionManager.getLatestStableVersion();
+  }
+
+  public createSymlink(targetPath: string, version: string): void {
+    const zigBinaryName = this.platform === 'windows' ? 'zig.exe' : 'zig';
+    const zigBinary = join(this.binDir, zigBinaryName);
+
+    // Create new symlink
+    try {
+      let symlinkTarget;
+
+      if (version === 'system') {
+        // For system zig, use the direct path to the binary
+        symlinkTarget = targetPath;
+      } else {
+        // For ziggy-managed versions, find the actual zig binary
+        // First check if zig binary is directly in the path
+        const zigBinaryName = this.platform === 'windows' ? 'zig.exe' : 'zig';
+        const directZigPath = join(targetPath, zigBinaryName);
+        if (this.fileSystemManager.fileExists(directZigPath)) {
+          symlinkTarget = directZigPath;
+        } else {
+          // Fallback: look for extracted directory structure
+          const extractedDirName = `zig-${this.arch}-${this.platform}-${version}`;
+          symlinkTarget = join(targetPath, extractedDirName, zigBinaryName);
+        }
+      }
+
+      log(colors.gray(`Creating symlink: ${zigBinary} -> ${symlinkTarget}`));
+
+      // Create symlink using FileSystemManager
+      this.fileSystemManager.createSymlink(symlinkTarget, zigBinary, this.platform);
+      
+      this.versionManager.setCurrentVersion(version);
+      log(colors.green(`✓ Symlinked ${version} to ${zigBinary}`));
+    } catch (error) {
+      console.error(colors.red('Error creating symlink:'), error);
+    }
+  }
+
+  public createEnvFile(): void {
+    let envContent: string;
+    let instructions: string;
+
+    if (this.platform === 'windows') {
+      // PowerShell script for Windows
+      envContent = `# Ziggy Environment for PowerShell
+# Add this line to your PowerShell profile:
+# . "${this.envPath.replace(/\\/g, '\\\\')}"
+
+$env:PATH = "${this.binDir.replace(/\\/g, '\\\\')};" + $env:PATH
+`;
+      instructions = `Add this to your PowerShell profile:\n. "${this.envPath}"`;
+    } else {
+      // Bash/Zsh script for Unix-like systems
+      envContent = `# Ziggy Environment
+# Add this line to your shell profile (.bashrc, .zshrc, etc.):
+# source "${this.envPath}"
+
+export PATH="${this.binDir}:$PATH"
+`;
+      instructions = `Add this to your shell profile:\nsource "${this.envPath}"`;
+    }
+
+    this.fileSystemManager.writeFile(this.envPath, envContent);
+    log(colors.green(`✓ Created env file at ${this.envPath}`));
+    log(colors.yellow(`\nTo use ziggy-managed Zig versions:`));
+    log(colors.cyan(instructions));
   }
 
 
@@ -900,6 +811,16 @@ export PATH="${this.binDir}:$PATH"
   private async showPostActionOptions(customOptions: { value: string; label: string; hint?: string }[] = []): Promise<string> {
     // Delegate to MainMenuUI
     return await this.mainMenuUI.showPostActionOptions(customOptions);
+  }
+
+  public displayHeaderWithInfo(): void {
+    // Delegate to MainMenuUI
+    this.mainMenuUI.displayHeaderWithInfo();
+  }
+
+  private async showPostInstallOptions(): Promise<void> {
+    // Delegate to DownloadUI
+    await this.downloadUI.showPostInstallOptions();
   }
 
 
@@ -978,13 +899,46 @@ export PATH="${this.binDir}:$PATH"
 
 }
 
-// Main execution
-(async () => {
-  // Setup signal handlers for graceful exit
-  setupSignalHandlers();
+/**
+ * Application Entry Point
+ * Creates the application using dependency injection and starts the CLI
+ */
+export async function createApplication(): Promise<ZigInstaller> {
+  const factory = new ApplicationFactory();
+  const installer = factory.createZigInstaller();
+  
+  // Set global reference for signal handling
+  currentInstaller = installer;
+  
+  return installer;
+}
 
-  const program = setupCLI();
+/**
+ * Main execution function
+ * Sets up the application and starts the CLI
+ */
+async function main(): Promise<void> {
+  try {
+    // Setup signal handlers for graceful exit
+    setupSignalHandlers();
 
-  // Parse arguments
-  await program.parseAsync(process.argv);
-})();
+    // Create application with dependency injection
+    await createApplication();
+
+    // Setup and run CLI
+    const program = setupCLI();
+    await program.parseAsync(process.argv);
+    
+  } catch (error) {
+    console.error(colors.red('Fatal error during startup:'), error);
+    process.exit(1);
+  }
+}
+
+// Only run main if this file is executed directly
+if (import.meta.main) {
+  main().catch((error) => {
+    console.error(colors.red('Unhandled error:'), error);
+    process.exit(1);
+  });
+}

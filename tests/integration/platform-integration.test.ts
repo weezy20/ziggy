@@ -3,7 +3,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { ZigInstaller } from '../../src/index.js';
+import { createApplication } from '../../src/index.js';
+import type { ZigInstaller } from '../../src/index.js';
 import { PlatformDetector } from '../../src/utils/platform.js';
 
 describe('Platform Detection Integration', () => {
@@ -17,12 +18,12 @@ describe('Platform Detection Integration', () => {
     process.env = originalEnv;
   });
 
-  it('should properly initialize ZigInstaller with platform detection', () => {
+  it('should properly initialize ZigInstaller with platform detection', async () => {
     // Set up a temporary home directory for testing
     process.env.HOME = '/tmp/test-home';
     process.env.ZIGGY_DIR = '/tmp/test-ziggy';
 
-    const installer = new ZigInstaller();
+    const installer = await createApplication();
     
     // Verify that platform detection is working
     expect(installer.platform).toBeDefined();
@@ -33,11 +34,11 @@ describe('Platform Detection Integration', () => {
     expect(installer.platform).toBe(detector.getPlatform());
   });
 
-  it('should use PlatformDetector for archive extension detection', () => {
+  it('should use PlatformDetector for archive extension detection', async () => {
     process.env.HOME = '/tmp/test-home';
     process.env.ZIGGY_DIR = '/tmp/test-ziggy';
 
-    const installer = new ZigInstaller();
+    const installer = await createApplication();
     const detector = new PlatformDetector();
     
     // The installer should use the same archive extension as the detector
@@ -55,11 +56,11 @@ describe('Platform Detection Integration', () => {
     }
   });
 
-  it('should properly detect shell information through PlatformDetector', () => {
+  it('should properly detect shell information through PlatformDetector', async () => {
     process.env.HOME = '/tmp/test-home';
     process.env.ZIGGY_DIR = '/tmp/test-ziggy';
 
-    const installer = new ZigInstaller();
+    const installer = await createApplication();
     const detector = new PlatformDetector();
     
     // Both should return the same shell information

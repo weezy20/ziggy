@@ -1,11 +1,12 @@
 import * as clack from '@clack/prompts';
-import { ZigInstaller } from '../index';
+import { createApplication } from '../index';
+import { selectCleanupAction, showNote } from '../cli/prompts/common.js';
 
 /**
  * Clean command - cleanup Zig installations
  */
 export async function cleanCommand(): Promise<void> {
-  const installer = new ZigInstaller();
+  const installer = await createApplication();
   
   const downloadedVersions = Object.keys(installer.config.downloads).filter(v => {
     const info = installer.config.downloads[v];
@@ -25,32 +26,11 @@ export async function cleanCommand(): Promise<void> {
     })
     .join('\n');
   
-  clack.note(versionsList, 'Installed Zig versions (managed by ziggy)');
+  showNote(versionsList, 'Installed Zig versions (managed by ziggy)');
 
-  const choices = [
-    { value: 'clean-all', label: 'Clean everything' }
-  ];
+  const action = await selectCleanupAction(downloadedVersions, installer.config.currentVersion);
 
-  // Add option to keep current version if there is one
-  if (installer.config.currentVersion && installer.config.currentVersion !== 'system') {
-    choices.push({ 
-      value: 'clean-except-current', 
-      label: `Clean all except current active version (${installer.config.currentVersion})` 
-    });
-  }
-
-  // Add option to select which version to keep
-  if (downloadedVersions.length > 1) {
-    choices.push({ value: 'select-keep', label: 'Select which version to keep' });
-  }
-
-  const action = await clack.select({
-    message: 'Choose cleanup option: (Only ziggy managed installations will be affected)',
-    options: choices,
-    initialValue: 'clean-all'
-  });
-
-  if (clack.isCancel(action)) {
+  if (action === 'back') {
     return;
   }
 

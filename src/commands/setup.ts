@@ -1,13 +1,14 @@
 import { existsSync, appendFileSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
-import { ZigInstaller, log } from '../index';
+import { createApplication, log } from '../index';
 import { colors } from '../utils/colors';
 import * as clack from '@clack/prompts';
+import { confirmPrompt, selectPrompt } from '../cli/prompts/common.js';
 /**
  * Setup command - automatically configure shell environment
  */
 export async function setupCommand(): Promise<void> {
-  const installer = new ZigInstaller();
+  const installer = await createApplication();
   
   log(colors.cyan('🔧 Ziggy Environment Setup'));
   log();
@@ -38,12 +39,13 @@ export async function setupCommand(): Promise<void> {
     log(colors.gray(`Profile: ${profilePath}`));
     log(colors.gray(`Adding: ${envLine}`));
     
-    const confirm = await clack.confirm({
-      message: 'Add Ziggy to your PowerShell profile?',
-      initialValue: true
-    });
+    const confirm = await confirmPrompt(
+      'Add Ziggy to your PowerShell profile?',
+      true,
+      'Setup cancelled.'
+    );
     
-    if (clack.isCancel(confirm) || !confirm) {
+    if (!confirm) {
       log(colors.yellow('Setup cancelled.'));
       return;
     }
@@ -100,13 +102,15 @@ export async function setupCommand(): Promise<void> {
       { value: 'custom', label: 'Choose a different shell profile' }
     ];
     
-    const setupChoice = await clack.select({
-      message: 'How would you like to setup your shell environment?',
-      options: choices,
-      initialValue: 'auto'
-    });
+    const setupChoice = await selectPrompt(
+      'How would you like to setup your shell environment?',
+      choices,
+      'auto',
+      undefined,
+      'Setup cancelled.'
+    );
     
-    if (clack.isCancel(setupChoice)) {
+    if (setupChoice === 'back') {
       log(colors.yellow('Setup cancelled.'));
       return;
     }
@@ -118,13 +122,15 @@ export async function setupCommand(): Promise<void> {
         label: `${s.name} (${s.file})`
       }));
       
-      const selectedShell = await clack.select({
-        message: 'Select your shell profile:',
-        options: shellChoices,
-        initialValue: defaultConfig!.actualFile
-      });
+      const selectedShell = await selectPrompt(
+        'Select your shell profile:',
+        shellChoices,
+        defaultConfig!.actualFile,
+        undefined,
+        'Setup cancelled.'
+      );
       
-      if (clack.isCancel(selectedShell)) {
+      if (selectedShell === 'back') {
         log(colors.yellow('Setup cancelled.'));
         return;
       }
@@ -141,12 +147,13 @@ export async function setupCommand(): Promise<void> {
       log(colors.gray(`Profile: ${profileName}`));
       log(colors.gray(`Adding this line -> ${envLine}`));
       
-      const confirm = await clack.confirm({
-        message: `Add Ziggy to your ${defaultConfig!.name} profile?`,
-        initialValue: true
-      });
+      const confirm = await confirmPrompt(
+        `Add Ziggy to your ${defaultConfig!.name} profile?`,
+        true,
+        'Setup cancelled.'
+      );
       
-      if (clack.isCancel(confirm) || !confirm) {
+      if (!confirm) {
         log(colors.yellow('Setup cancelled.'));
         return;
       }

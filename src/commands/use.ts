@@ -1,6 +1,7 @@
 import * as clack from '@clack/prompts';
-import { ZigInstaller, log } from '../index';
+import { createApplication, log } from '../index';
 import { colors } from '../utils/colors';
+import { selectPrompt, confirmPrompt, showPostActionMenu } from '../cli/prompts/common.js';
 
 /**
  * Use command - select which Zig version to use
@@ -8,7 +9,7 @@ import { colors } from '../utils/colors';
  * @param specificVersion - Specific version to use directly (bypasses interactive selection)
  */
 export async function useCommand(includeNavigation = false, specificVersion?: string): Promise<boolean> {
-  const installer = new ZigInstaller();
+  const installer = await createApplication();
   
   // If a specific version is provided, try to use it directly
   if (specificVersion) {
@@ -59,25 +60,15 @@ export async function useCommand(includeNavigation = false, specificVersion?: st
     );
   }
   
-  const selectedVersion = await clack.select({
-    message: 'Select Zig version to use:',
-    options: choices,
-    initialValue: choices.length > 0 ? choices[0]?.value || 'back' : 'back'
-  });
+  const selectedVersion = await selectPrompt(
+    'Select Zig version to use:',
+    choices,
+    choices.length > 0 ? choices[0]?.value || 'back' : 'back',
+    includeNavigation ? { includeBack: true, includeQuit: true } : undefined
+  );
   
-  if (clack.isCancel(selectedVersion)) {
-    return false;
-  }
-  
-  if (includeNavigation) {
-    if (selectedVersion === 'back') {
-      return false; // Go back to main menu
-    }
-    
-    if (selectedVersion === 'quit') {
-      log(colors.green('👋 Goodbye!'));
-      process.exit(0);
-    }
+  if (selectedVersion === 'back') {
+    return false; // Go back to main menu
   }
   
   installer.useVersion(selectedVersion);
@@ -131,12 +122,13 @@ async function handleSpecificVersion(installer: ZigInstaller, version: string, i
   }
   
   // Version is valid but not installed, offer to download
-  const shouldDownload = await clack.confirm({
-    message: `Version "${version}" is not installed. Would you like to download it?`,
-    initialValue: true
-  });
+  const shouldDownload = await confirmPrompt(
+    `Version "${version}" is not installed. Would you like to download it?`,
+    true,
+    'Download cancelled'
+  );
   
-  if (clack.isCancel(shouldDownload) || !shouldDownload) {
+  if (!shouldDownload) {
     clack.log.info('Download cancelled');
     
     if (includeNavigation) {

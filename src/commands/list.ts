@@ -1,10 +1,10 @@
-import { ZigInstaller, log } from '../index';
+import { createApplication, log } from '../index';
 import { colors } from '../utils/colors';
 /**
  * List command - show installed Zig versions
  */
-export function listCommand(): void {
-  const installer = new ZigInstaller();
+export async function listCommand(): Promise<void> {
+  const installer = await createApplication();
   
   log(colors.yellow('\n📦 Installed Zig Versions:\n'));
   

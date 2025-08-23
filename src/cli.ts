@@ -89,7 +89,8 @@ export function setupCLI(): Command {
     .description('Show download statistics and mirror health')
     .action(async () => {
       try {
-        const installer = new ZigInstaller();
+        const { createApplication } = await import('./index');
+        const installer = await createApplication();
         await statsCommand(installer.getConfigManager());
       } catch (error) {
         console.error(colors.red('Error:'), error);
@@ -101,7 +102,8 @@ export function setupCLI(): Command {
   program
     .action(async () => {
       try {
-        const installer = new ZigInstaller();
+        const { createApplication } = await import('./index');
+        const installer = await createApplication();
         await installer.run();
       } catch (error) {
         console.error(colors.red('Fatal error:'), error);
