@@ -1,5 +1,4 @@
 import { resolve } from 'path';
-import * as clack from '@clack/prompts';
 import { TemplateManager } from '../templates/manager.js';
 import { ProjectCreator } from '../templates/creator.js';
 import { FileSystemManager } from '../utils/filesystem.js';

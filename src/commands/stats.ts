@@ -4,10 +4,18 @@
 
 import { colors } from '../utils/colors.js';
 import { ZIG_ASCII_ART } from '../ascii-art.js';
+import type { IConfigManager } from '../interfaces.js';
 
 const log = console.log;
 
-export async function statsCommand(configManager: any): Promise<void> {
+export async function statsCommand(configManager?: IConfigManager): Promise<void> {
+  // If dependencies not provided, create them (for backward compatibility)
+  if (!configManager) {
+    const { createApplication } = await import('../index.js');
+    const app = await createApplication();
+    configManager = app.getConfigManager();
+  }
+
   // Show the ziggy banner
   log(ZIG_ASCII_ART);
   log(colors.cyan('Zig Version Manager\n'));

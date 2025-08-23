@@ -297,7 +297,7 @@ export class ZigInstaller {
       () => this.handleDownloadLatestTUI(),
       () => this.handleDownloadSpecificTUI(),
       () => this.listVersionsTUI(),
-      () => useCommand(true),
+      () => useCommand(true, undefined, this.coreInstaller, this.configManager, this.versionManager),
       () => this.handleCleanTUI()
     );
     

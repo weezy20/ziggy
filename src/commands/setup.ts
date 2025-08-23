@@ -1,19 +1,32 @@
 import { existsSync, appendFileSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
-import { createApplication, log } from '../index';
 import { colors } from '../utils/colors';
 import * as clack from '@clack/prompts';
 import { confirmPrompt, selectPrompt } from '../cli/prompts/common.js';
+import type { IPlatformDetector } from '../interfaces.js';
+
+const log = console.log;
+
 /**
  * Setup command - automatically configure shell environment
+ * @param platformDetector - Platform detector instance
+ * @param envPath - Path to environment file
  */
-export async function setupCommand(): Promise<void> {
-  const installer = await createApplication();
+export async function setupCommand(platformDetector?: IPlatformDetector, envPath?: string): Promise<void> {
+  // If dependencies not provided, create them (for backward compatibility)
+  if (!platformDetector || !envPath) {
+    const { createApplication } = await import('../index.js');
+    const app = await createApplication();
+    platformDetector = (app as any).platformDetector;
+    envPath = (app as any).envPath;
+  }
+  
+  const platform = platformDetector.getPlatform();
   
   log(colors.cyan('🔧 Ziggy Environment Setup'));
   log();
 
-  if (installer.platform === 'windows') {
+  if (platform === 'windows') {
     // Windows PowerShell setup - get the actual $PROFILE path
     let profilePath: string;
     try {
@@ -33,7 +46,7 @@ export async function setupCommand(): Promise<void> {
       profilePath = process.env.USERPROFILE + '\\Documents\\WindowsPowerShell\\Microsoft.PowerShell_profile.ps1';
     }
     
-    const envLine = `. "${installer.envPath}"`;
+    const envLine = `. "${envPath}"`;
     
     log(colors.yellow('Setting up PowerShell environment...'));
     log(colors.gray(`Profile: ${profilePath}`));
@@ -60,7 +73,7 @@ export async function setupCommand(): Promise<void> {
       // Check if line already exists
       if (existsSync(profilePath)) {
         const content = require('fs').readFileSync(profilePath, 'utf8');
-        if (content.includes(installer.envPath)) {
+        if (content.includes(envPath)) {
           log(colors.green('✓ Ziggy is already configured in your PowerShell profile'));
           return;
         }
@@ -71,7 +84,7 @@ export async function setupCommand(): Promise<void> {
       
       log(colors.green('✅ Successfully added Ziggy to PowerShell profile!'));
       log(colors.yellow('\n🔄 Please restart PowerShell or run:'));
-      log(colors.cyan(`. "${installer.envPath}"`));
+      log(colors.cyan(`. "${envPath}"`));
       
     } catch (error) {
       console.error(colors.red('❌ Failed to setup profile:'), error);
@@ -84,6 +97,7 @@ export async function setupCommand(): Promise<void> {
     log(colors.yellow('Setting up shell environment...'));
     
     // Detect current shell
+    const shellInfo = platformDetector.getShellInfo();
     const currentShell = process.env.SHELL?.split('/').pop() || 'bash';
     
     const shellConfigs = [
@@ -140,7 +154,7 @@ export async function setupCommand(): Promise<void> {
     
     if (setupChoice === 'auto' || setupChoice === 'custom') {
       // Automatic setup
-      const envLine = `source "${installer.envPath}"`;
+      const envLine = `source "${envPath}"`;
       const profilePath = defaultConfig!.actualFile;
       const profileName = defaultConfig!.file;
       
@@ -168,7 +182,7 @@ export async function setupCommand(): Promise<void> {
         // Check if line already exists
         if (existsSync(profilePath)) {
           const content = require('fs').readFileSync(profilePath, 'utf8');
-          if (content.includes(installer.envPath)) {
+          if (content.includes(envPath)) {
             log(colors.green(`✓ Ziggy is already configured in your ${defaultConfig!.name} profile`));
             return;
           }
@@ -192,7 +206,7 @@ export async function setupCommand(): Promise<void> {
       // Manual setup instructions
       log(colors.cyan('Add one of these lines to your shell profile:'));
       for (const shell of shellConfigs) {
-        const envLine = `source "${installer.envPath}"`;
+        const envLine = `source "${envPath}"`;
         log(colors.green(`• ${shell.name} (${shell.file}): ${envLine}`));
       }
       log(colors.yellow('\nAfter adding the line, restart your terminal or run:'));

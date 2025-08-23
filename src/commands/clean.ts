@@ -1,15 +1,26 @@
 import * as clack from '@clack/prompts';
-import { createApplication } from '../index';
 import { selectCleanupAction, showNote } from '../cli/prompts/common.js';
+import type { IZigInstaller, IConfigManager } from '../interfaces.js';
+import type { ZiggyConfig } from '../types.js';
 
 /**
  * Clean command - cleanup Zig installations
+ * @param installer - Core installer instance
+ * @param configManager - Configuration manager instance
  */
-export async function cleanCommand(): Promise<void> {
-  const installer = await createApplication();
+export async function cleanCommand(installer?: IZigInstaller, configManager?: IConfigManager): Promise<void> {
+  // If dependencies not provided, create them (for backward compatibility)
+  if (!installer || !configManager) {
+    const { createApplication } = await import('../index.js');
+    const app = await createApplication();
+    installer = app;
+    configManager = app.getConfigManager();
+  }
   
-  const downloadedVersions = Object.keys(installer.config.downloads).filter(v => {
-    const info = installer.config.downloads[v];
+  const config = configManager.load();
+  
+  const downloadedVersions = Object.keys(config.downloads).filter(v => {
+    const info = config.downloads[v];
     return info?.status === 'completed' && v !== 'system';
   });
 
@@ -21,14 +32,14 @@ export async function cleanCommand(): Promise<void> {
   // Show current versions
   const versionsList = downloadedVersions
     .map(v => {
-      const isCurrent = installer.config.currentVersion === v ? ' ← current' : '';
+      const isCurrent = config.currentVersion === v ? ' ← current' : '';
       return `• ${v}${isCurrent}`;
     })
     .join('\n');
   
   showNote(versionsList, 'Installed Zig versions (managed by ziggy)');
 
-  const action = await selectCleanupAction(downloadedVersions, installer.config.currentVersion);
+  const action = await selectCleanupAction(downloadedVersions, config.currentVersion);
 
   if (action === 'back') {
     return;
@@ -36,13 +47,13 @@ export async function cleanCommand(): Promise<void> {
 
   switch (action) {
     case 'clean-all':
-      await installer.cleanAllVersions();
+      await (installer as any).cleanAllVersions();
       break;
     case 'clean-except-current':
-      await installer.cleanExceptCurrent();
+      await (installer as any).cleanExceptCurrent();
       break;
     case 'select-keep':
-      await installer.selectVersionToKeep();
+      await (installer as any).selectVersionToKeep();
       break;
   }
 }

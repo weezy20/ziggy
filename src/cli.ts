@@ -1,5 +1,4 @@
 import { Command } from 'commander';
-import { ZigInstaller } from './index';
 import { initCommand } from './commands/init';
 import { useCommand } from './commands/use';
 import { listCommand } from './commands/list';
@@ -37,7 +36,10 @@ export function setupCLI(): Command {
     .argument('[version]', 'Specific version to use (e.g., "master", "0.14.1")')
     .action(async (version?: string) => {
       try {
-        await useCommand(false, version);
+        const { createApplication } = await import('./index');
+        const installer = await createApplication();
+        const configManager = installer.getConfigManager();
+        await useCommand(false, version, installer, configManager, configManager as any);
       } catch (error) {
         console.error(colors.red('Error:'), error);
         process.exit(1);
@@ -50,7 +52,10 @@ export function setupCLI(): Command {
     .description('List installed Zig versions')
     .action(async () => {
       try {
-        await listCommand();
+        const { createApplication } = await import('./index');
+        const installer = await createApplication();
+        const configManager = installer.getConfigManager();
+        await listCommand(configManager, configManager as any);
       } catch (error) {
         console.error(colors.red('Error:'), error);
         process.exit(1);
@@ -63,7 +68,10 @@ export function setupCLI(): Command {
     .description('Clean up Zig installations')
     .action(async () => {
       try {
-        await cleanCommand();
+        const { createApplication } = await import('./index');
+        const installer = await createApplication();
+        const configManager = installer.getConfigManager();
+        await cleanCommand(installer, configManager);
       } catch (error) {
         console.error(colors.red('Error:'), error);
         process.exit(1);
@@ -76,7 +84,11 @@ export function setupCLI(): Command {
     .description('Setup shell environment for Ziggy')
     .action(async () => {
       try {
-        await setupCommand();
+        const { createApplication } = await import('./index');
+        const installer = await createApplication();
+        const platformDetector = (installer as any).platformDetector;
+        const envPath = (installer as any).envPath;
+        await setupCommand(platformDetector, envPath);
       } catch (error) {
         console.error(colors.red('Error:'), error);
         process.exit(1);
