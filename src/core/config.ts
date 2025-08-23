@@ -292,6 +292,15 @@ export class ConfigManager implements IConfigManager {
       }
     }
 
+    // Add community mirrors if present
+    if (config.communityMirrors && config.communityMirrors.length > 0) {
+      tomlData.communityMirrors = config.communityMirrors;
+    }
+
+    if (config.communityMirrorsLastUpdated) {
+      tomlData.communityMirrorsLastUpdated = config.communityMirrorsLastUpdated;
+    }
+
     return tomlData;
   }
 

@@ -684,9 +684,10 @@ export class ZigInstaller implements IZigInstaller {
     if (cachedMirrors && cacheAge < MIRRORS_CACHE_DURATION_HOURS) {
       // Use cached mirrors
       mirrors = cachedMirrors;
-      log(colors.gray(`Using cached community mirrors (${Math.floor(cacheAge)}h old)`));
+      log(colors.gray(`Using cached community mirrors (${Math.floor(cacheAge)}h old, ${mirrors.length} mirrors)`));
     } else {
       // Fetch fresh mirrors
+      log(colors.blue(`Cache status: cachedMirrors=${!!cachedMirrors}, cacheAge=${cacheAge}h, limit=${MIRRORS_CACHE_DURATION_HOURS}h`));
       try {
         log(colors.blue('Fetching updated community mirrors...'));
         const mirrorsResponse = await fetch(ZIG_COMMUNITY_MIRRORS_URL);
