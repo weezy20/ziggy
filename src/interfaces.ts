@@ -3,7 +3,7 @@
  * These interfaces define the contracts between different layers and modules
  */
 
-import type { ZiggyConfig, ShellInfo, DownloadProgress } from './types.js';
+import type { ZiggyConfig, ShellInfo, DownloadProgress, MirrorsConfig } from './types.js';
 
 // Core installer interface
 export interface IZigInstaller {
@@ -107,10 +107,56 @@ export interface IProgressReporter {
 
 // Community mirrors management interface
 export interface IMirrorsManager {
+  // Existing methods
   getCommunityMirrors(): Promise<string[]>;
   getCachedMirrors(): string[];
   updateMirrorsCache(): Promise<void>;
   selectMirrorForDownload(mirrors: string[]): string[];
   isMirrorsCacheExpired(): boolean;
   getMirrorUrls(originalUrl: string): Promise<string[]>;
+  
+  // New methods for ranking and persistence
+  /**
+   * Load mirrors configuration from mirrors.toml file
+   * Creates default configuration if file doesn't exist
+   * @returns MirrorsConfig object with mirrors and last_synced timestamp
+   */
+  loadMirrorsConfig(): MirrorsConfig;
+  
+  /**
+   * Save mirrors configuration to mirrors.toml file
+   * Persists mirror rankings and sync timestamp
+   * @param config - MirrorsConfig object to save
+   */
+  saveMirrorsConfig(config: MirrorsConfig): void;
+  
+  /**
+   * Update mirror rank based on failure type
+   * Increments rank by 1 for timeout/404, by 2 for signature/checksum failures
+   * Persists changes immediately to mirrors.toml
+   * @param url - Mirror URL that failed
+   * @param failureType - Type of failure encountered
+   */
+  updateMirrorRank(url: string, failureType: 'timeout' | 'signature' | 'checksum'): void;
+  
+  /**
+   * Select best mirrors using weighted random selection based on ranks
+   * Lower rank = higher priority, with fallback to ziglang.org after retries
+   * @param maxRetries - Maximum number of mirror attempts before fallback (default: 3)
+   * @returns Array of mirror URLs ordered by selection priority
+   */
+  selectBestMirrors(maxRetries?: number): string[];
+  
+  /**
+   * Reset all mirror ranks to default value (1)
+   * Used when all mirrors fail or during sync operations
+   */
+  resetMirrorRanks(): void;
+  
+  /**
+   * Synchronize mirrors with community mirror list
+   * Fetches latest mirrors, resets ranks, and updates last_synced timestamp
+   * @returns Promise that resolves when sync is complete
+   */
+  syncMirrors(): Promise<void>;
 }
