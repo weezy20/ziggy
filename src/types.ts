@@ -93,3 +93,33 @@ export interface ZigVersionInfo {
   date: string;
   'min-zig-version'?: string;
 }
+
+// Mirror Management Types
+
+/**
+ * Represents a community mirror for Zig downloads
+ * Matches the Rust Mirror structure for configuration persistence
+ */
+export interface Mirror {
+  /** Community Mirror URL - must be HTTPS */
+  url: string;
+  /** 
+   * Consecutive fails - Can be due to 404, timeout, signature or shasum verification failure
+   * Lower rank = higher priority (better reliability)
+   * New mirrors start at rank 1
+   * 404/timeout failures: +1 to rank
+   * Signature/checksum failures: +2 to rank
+   */
+  rank: number;
+}
+
+/**
+ * Configuration structure for mirrors.toml file
+ * Matches the Rust MirrorsConfig structure for TOML serialization
+ */
+export interface MirrorsConfig {
+  /** List of download mirrors with their reliability rankings */
+  mirrors: Mirror[];
+  /** Last synced timestamp in ISO 8601 format */
+  last_synced: string;
+}
