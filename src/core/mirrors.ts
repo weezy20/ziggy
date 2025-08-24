@@ -11,7 +11,8 @@ import { mirrorConfigManager } from '../utils/mirror-config.js';
 import { 
   ZIG_COMMUNITY_MIRRORS_URL, 
   MIRRORS_CACHE_DURATION_HOURS, 
-  MAX_MIRROR_RETRIES 
+  MAX_MIRROR_RETRIES,
+  MIRROR_SYNC_THRESHOLD_HOURS
 } from '../constants.js';
 
 const log = console.log;
@@ -311,6 +312,39 @@ export class MirrorsManager implements IMirrorsManager {
       return parsedUrl.protocol === 'https:';
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Check if mirrors need to be synced based on last_synced timestamp
+   * Uses 24-hour threshold to determine if sync is needed
+   */
+  public isMirrorsSyncExpired(): boolean {
+    const config = this.loadMirrorsConfig();
+    const lastSynced = config.last_synced;
+    
+    if (!lastSynced) {
+      // No sync timestamp means mirrors have never been synced
+      return true;
+    }
+
+    try {
+      const lastSyncDate = new Date(lastSynced);
+      
+      // Check if the date is invalid (NaN)
+      if (isNaN(lastSyncDate.getTime())) {
+        log(colors.yellow(`⚠ Invalid last_synced timestamp: ${lastSynced}`));
+        return true;
+      }
+      
+      const now = new Date();
+      const hoursSinceSync = (now.getTime() - lastSyncDate.getTime()) / (1000 * 60 * 60);
+      
+      return hoursSinceSync >= MIRROR_SYNC_THRESHOLD_HOURS;
+    } catch (error) {
+      // Invalid timestamp format, consider expired
+      log(colors.yellow(`⚠ Invalid last_synced timestamp: ${lastSynced}`));
+      return true;
     }
   }
 

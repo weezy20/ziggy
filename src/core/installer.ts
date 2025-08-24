@@ -591,6 +591,18 @@ export class ZigInstaller implements IZigInstaller {
    * Download file with mirror rotation and verification
    */
   private async downloadWithMirrors(originalUrl: string, targetPath: string, downloadInfo: DownloadInfo): Promise<void> {
+    // Check if mirrors need syncing and automatically sync if stale (24-hour threshold)
+    if (this.mirrorsManager.isMirrorsSyncExpired()) {
+      try {
+        log(colors.blue('🔄 Mirrors are stale, automatically syncing...'));
+        await this.mirrorsManager.syncMirrors();
+        log(colors.green('✓ Mirrors synchronized automatically'));
+      } catch (error) {
+        log(colors.yellow(`⚠ Failed to auto-sync mirrors: ${error}`));
+        log(colors.yellow('Continuing with existing mirrors...'));
+      }
+    }
+    
     // Use selectBestMirrors for intelligent mirror selection based on rankings
     const selectedMirrorBases = this.mirrorsManager.selectBestMirrors(3); // 3-retry logic as per requirements
     

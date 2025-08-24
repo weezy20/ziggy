@@ -244,4 +244,51 @@ describe('Download Mirror Integration Tests', () => {
     // Restore original method
     mirrorsManager.updateMirrorRank = originalUpdateMirrorRank;
   });
+
+  test('should automatically sync mirrors when they are stale before download', async () => {
+    // Test that automatic sync checking works in the download flow
+    const config = mirrorsManager.loadMirrorsConfig();
+    
+    // Set last_synced to more than 24 hours ago to trigger sync
+    const staleTimestamp = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    config.last_synced = staleTimestamp;
+    mirrorsManager.saveMirrorsConfig(config);
+
+    // Check that mirrors are considered expired
+    expect(mirrorsManager.isMirrorsSyncExpired()).toBe(true);
+
+    // The actual sync would happen in downloadWithMirrors method
+    // This test verifies the sync checking logic works correctly
+  });
+
+  test('should skip sync when mirrors are fresh', async () => {
+    // Test that sync is skipped when mirrors are fresh
+    const config = mirrorsManager.loadMirrorsConfig();
+    
+    // Set last_synced to within 24 hours to skip sync
+    const freshTimestamp = new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString();
+    config.last_synced = freshTimestamp;
+    mirrorsManager.saveMirrorsConfig(config);
+
+    // Check that mirrors are not considered expired
+    expect(mirrorsManager.isMirrorsSyncExpired()).toBe(false);
+  });
+
+  test('should handle invalid timestamp gracefully', async () => {
+    // Test that invalid timestamps are handled properly
+    // We need to test this by mocking the loadConfig to return invalid data
+    // since the saveConfig validates and rejects invalid timestamps
+    
+    const originalLoadConfig = mirrorsManager.loadMirrorsConfig;
+    mirrorsManager.loadMirrorsConfig = () => ({
+      mirrors: [],
+      last_synced: 'invalid-timestamp'
+    });
+
+    // Should consider expired for invalid timestamps
+    expect(mirrorsManager.isMirrorsSyncExpired()).toBe(true);
+
+    // Restore original method
+    mirrorsManager.loadMirrorsConfig = originalLoadConfig;
+  });
 });

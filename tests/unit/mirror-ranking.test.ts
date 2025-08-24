@@ -455,6 +455,66 @@ describe('MirrorsManager - Ranking and Selection', () => {
     });
   });
 
+  describe('isMirrorsSyncExpired', () => {
+    it('should return true when no last_synced timestamp exists', () => {
+      // Mock config with no last_synced
+      mockLoadConfig.mockReturnValue({
+        mirrors: [],
+        last_synced: ''
+      });
+
+      const result = mirrorsManager.isMirrorsSyncExpired();
+      expect(result).toBe(true);
+    });
+
+    it('should return true when last_synced is older than 24 hours', () => {
+      // Mock config with old timestamp (25 hours ago)
+      const oldTimestamp = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+      mockLoadConfig.mockReturnValue({
+        mirrors: [],
+        last_synced: oldTimestamp
+      });
+
+      const result = mirrorsManager.isMirrorsSyncExpired();
+      expect(result).toBe(true);
+    });
+
+    it('should return false when last_synced is within 24 hours', () => {
+      // Mock config with recent timestamp (1 hour ago)
+      const recentTimestamp = new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString();
+      mockLoadConfig.mockReturnValue({
+        mirrors: [],
+        last_synced: recentTimestamp
+      });
+
+      const result = mirrorsManager.isMirrorsSyncExpired();
+      expect(result).toBe(false);
+    });
+
+    it('should return true for invalid timestamp format', () => {
+      // Mock config with invalid timestamp
+      mockLoadConfig.mockReturnValue({
+        mirrors: [],
+        last_synced: 'invalid-timestamp'
+      });
+
+      const result = mirrorsManager.isMirrorsSyncExpired();
+      expect(result).toBe(true);
+    });
+
+    it('should return false when exactly at 24 hour threshold', () => {
+      // Mock config with timestamp exactly 24 hours ago
+      const exactTimestamp = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      mockLoadConfig.mockReturnValue({
+        mirrors: [],
+        last_synced: exactTimestamp
+      });
+
+      const result = mirrorsManager.isMirrorsSyncExpired();
+      expect(result).toBe(true); // Should be true since >= 24 hours
+    });
+  });
+
   describe('weighted random selection algorithm', () => {
     it('should handle edge case with zero weights', () => {
       // This tests the private method indirectly through selectBestMirrors

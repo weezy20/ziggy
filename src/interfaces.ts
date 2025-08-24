@@ -159,4 +159,11 @@ export interface IMirrorsManager {
    * @returns Promise that resolves when sync is complete
    */
   syncMirrors(): Promise<void>;
+  
+  /**
+   * Check if mirrors need to be synced based on last_synced timestamp
+   * Uses 24-hour threshold to determine if sync is needed
+   * @returns True if mirrors are stale and need syncing, false otherwise
+   */
+  isMirrorsSyncExpired(): boolean;
 }
