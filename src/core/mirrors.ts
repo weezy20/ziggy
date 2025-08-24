@@ -278,24 +278,13 @@ export class MirrorsManager implements IMirrorsManager {
         .map(line => line.trim())
         .filter(line => line && this.isValidHttpsUrl(line));
 
-      // Load current config to preserve any existing rankings for mirrors not in the new list
-      const config = this.loadMirrorsConfig();
-      const existingMirrors = new Map(config.mirrors.map(m => [m.url, m.rank]));
-
-      // Create new mirrors list with reset ranks for community mirrors
+      // Completely rebuild the mirrors configuration - reset everything
       const newMirrors: Mirror[] = mirrorUrls.map(url => ({
         url,
-        rank: 1 // Reset rank to default for all community mirrors
+        rank: 1 // All mirrors start with default rank
       }));
 
-      // Add any existing mirrors that aren't in the community list (preserve custom mirrors)
-      for (const existingMirror of config.mirrors) {
-        if (!mirrorUrls.includes(existingMirror.url)) {
-          newMirrors.push(existingMirror);
-        }
-      }
-
-      // Update configuration
+      // Create completely new configuration - no preservation of existing data
       const updatedConfig: MirrorsConfig = {
         mirrors: newMirrors,
         last_synced: new Date().toISOString()

@@ -319,13 +319,13 @@ describe('MirrorsManager - Ranking and Selection', () => {
 
       expect(mockFetch).toHaveBeenCalledWith('https://ziglang.org/download/community-mirrors.txt');
       
-      // Should save config with new mirrors and reset ranks
+      // Should save config with new mirrors and reset ranks (completely rebuilt)
       expect(mockSaveConfig).toHaveBeenCalledWith({
         mirrors: [
           { url: 'https://mirror1.com', rank: 1 },
           { url: 'https://mirror2.com', rank: 1 },
-          { url: 'https://old-mirror.com', rank: 1 },
-          { url: 'https://custom-mirror.com', rank: 2 } // Custom mirror preserved
+          { url: 'https://old-mirror.com', rank: 1 }
+          // Custom mirrors are NOT preserved - complete rebuild
         ],
         last_synced: expect.any(String)
       });
@@ -385,7 +385,7 @@ describe('MirrorsManager - Ranking and Selection', () => {
       expect(freshSaveConfig).toHaveBeenCalledTimes(0);
     });
 
-    it('should preserve custom mirrors not in community list', async () => {
+    it('should completely rebuild configuration without preserving custom mirrors', async () => {
       // Set up the initial config with custom mirror
       mockLoadConfig.mockReturnValue({
         mirrors: [
@@ -406,8 +406,10 @@ describe('MirrorsManager - Ranking and Selection', () => {
       const mirrorUrls = savedConfig.mirrors.map(m => m.url);
       
       expect(mirrorUrls).toContain('https://community-mirror.com');
-      expect(mirrorUrls).toContain('https://custom-mirror.com'); // Preserved
-      expect(mirrorUrls).toContain('https://old-mirror.com'); // Also preserved (not in community list)
+      expect(mirrorUrls).not.toContain('https://custom-mirror.com'); // NOT preserved - complete rebuild
+      expect(mirrorUrls).not.toContain('https://old-mirror.com'); // NOT preserved - complete rebuild
+      expect(savedConfig.mirrors).toHaveLength(1); // Only community mirrors
+      expect(savedConfig.mirrors[0]?.rank).toBe(1); // Reset to default rank
     });
   });
 

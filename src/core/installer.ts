@@ -584,21 +584,31 @@ export class ZigInstaller implements IZigInstaller {
    * Download file with mirror rotation and verification
    */
   private async downloadWithMirrors(originalUrl: string, targetPath: string, downloadInfo: DownloadInfo): Promise<void> {
-    const mirrorUrls = await this.getMirrorUrls(originalUrl);
+    // Use selectBestMirrors for intelligent mirror selection based on rankings
+    const selectedMirrorBases = this.mirrorsManager.selectBestMirrors(3); // 3-retry logic as per requirements
     
-    // Try community mirrors first (shuffled for load balancing)
-    const selectedMirrors = this.mirrorsManager.selectMirrorForDownload(mirrorUrls);
-    const urlsToTry = [...selectedMirrors, originalUrl];
-
+    // Convert base mirror URLs to actual download URLs for this specific file
+    const selectedMirrors: string[] = [];
+    const urlParts = originalUrl.replace('https://ziglang.org/download/', '');
+    
+    for (const mirrorBase of selectedMirrorBases) {
+      const trimmedMirror = mirrorBase.trim();
+      const baseUrl = trimmedMirror.endsWith('/') ? trimmedMirror.slice(0, -1) : trimmedMirror;
+      selectedMirrors.push(`${baseUrl}/${urlParts}?source=ziggy`);
+    }
+    
+    const urlsToTry = [...selectedMirrors, originalUrl]; // Always fallback to ziglang.org/download
 
     let lastError: Error | null = null;
     let downloadSuccess = false;
+    let attemptCount = 0;
 
     for (let i = 0; i < urlsToTry.length; i++) {
       const url = urlsToTry[i];
       if (!url) continue;
       
       const isOriginal = url === originalUrl;
+      attemptCount++;
 
       try {
         const hostname = new URL(url).hostname;
@@ -618,6 +628,11 @@ export class ZigInstaller implements IZigInstaller {
         const signatureBuffer = await this.downloadSignature(signatureUrl);
         
         if (!signatureBuffer) {
+          // Signature download failure - treat as verification failure
+          if (!isOriginal) {
+            const baseMirrorUrl = this.getBaseMirrorUrl(url);
+            this.mirrorsManager.updateMirrorRank(baseMirrorUrl, 'signature');
+          }
           log(colors.yellow(`⚠ Could not download signature from ${hostname}, trying next mirror...`));
           this.fileSystemManager.safeRemove(targetPath);
           continue;
@@ -627,6 +642,11 @@ export class ZigInstaller implements IZigInstaller {
         log(colors.blue('Verifying minisign signature...'));
         const signatureValid = verifyMinisignature(targetPath, signatureBuffer, ZIG_MINISIGN_PUBLIC_KEY);
         if (!signatureValid) {
+          // Signature verification failure - increment rank by 2
+          if (!isOriginal) {
+            const baseMirrorUrl = this.getBaseMirrorUrl(url);
+            this.mirrorsManager.updateMirrorRank(baseMirrorUrl, 'signature');
+          }
           log(colors.yellow(`⚠ Signature verification failed for ${hostname}, trying next mirror...`));
           this.fileSystemManager.safeRemove(targetPath);
           continue;
@@ -638,6 +658,11 @@ export class ZigInstaller implements IZigInstaller {
           log(colors.blue('Verifying download checksum...'));
           const checksumValid = verifyChecksum(targetPath, downloadInfo.checksum);
           if (!checksumValid) {
+            // Checksum verification failure - increment rank by 2
+            if (!isOriginal) {
+              const baseMirrorUrl = this.getBaseMirrorUrl(url);
+              this.mirrorsManager.updateMirrorRank(baseMirrorUrl, 'checksum');
+            }
             log(colors.yellow(`⚠ Checksum verification failed for ${hostname}, trying next mirror...`));
             this.fileSystemManager.safeRemove(targetPath);
             continue;
@@ -658,6 +683,21 @@ export class ZigInstaller implements IZigInstaller {
       } catch (error) {
         lastError = error as Error;
         const hostname = new URL(url).hostname;
+        
+        // Distinguish between timeout and verification failures
+        const errorMessage = error.message.toLowerCase();
+        const isTimeoutError = errorMessage.includes('timeout') || 
+                              errorMessage.includes('network') || 
+                              errorMessage.includes('fetch') ||
+                              errorMessage.includes('404') ||
+                              errorMessage.includes('http error');
+        
+        if (!isOriginal && isTimeoutError) {
+          // Network/timeout failure - increment rank by 1
+          const baseMirrorUrl = this.getBaseMirrorUrl(url);
+          this.mirrorsManager.updateMirrorRank(baseMirrorUrl, 'timeout');
+        }
+        
         log(colors.yellow(`⚠ Download failed from ${hostname}: ${error}`));
         this.fileSystemManager.safeRemove(targetPath);
         continue;
@@ -665,16 +705,16 @@ export class ZigInstaller implements IZigInstaller {
     }
 
     if (!downloadSuccess) {
-      throw new Error(`Failed to download from all mirrors. Last error: ${lastError?.message}`);
+      // If all mirrors failed after 3 retries, reset ranks and throw error
+      if (attemptCount >= 3) {
+        log(colors.yellow('All mirrors failed after 3 attempts, resetting mirror ranks...'));
+        this.mirrorsManager.resetMirrorRanks();
+      }
+      throw new Error(`Failed to download from all mirrors after ${attemptCount} attempts. Last error: ${lastError?.message}`);
     }
   }
 
-  /**
-   * Get community mirror URLs for a given original URL
-   */
-  private getMirrorUrls(originalUrl: string): Promise<string[]> {
-    return this.mirrorsManager.getMirrorUrls(originalUrl);
-  }
+
 
   /**
    * Download a file from a URL with progress display
@@ -732,6 +772,40 @@ export class ZigInstaller implements IZigInstaller {
       return Buffer.from(arrayBuffer);
     } catch (_error) {
       return null;
+    }
+  }
+
+  /**
+   * Extract base mirror URL from full download URL
+   * Converts "https://mirror.example.com/zig/0.13.0/zig-linux-x86_64-0.13.0.tar.xz?source=ziggy"
+   * to "https://mirror.example.com/zig/"
+   */
+  private getBaseMirrorUrl(fullUrl: string): string {
+    try {
+      const url = new URL(fullUrl);
+      // Remove query parameters
+      url.search = '';
+      
+      // Extract the base path by removing the version-specific parts
+      // Pattern: /zig/VERSION/zig-platform-arch-VERSION.ext
+      const pathParts = url.pathname.split('/');
+      
+      // Find the base mirror path (everything before the version directory)
+      // Look for pattern like /zig/VERSION/ or similar
+      let basePath = '';
+      for (let i = 0; i < pathParts.length - 1; i++) {
+        basePath += pathParts[i] + '/';
+        // Stop before the version directory (contains zig-platform-arch pattern)
+        if (i < pathParts.length - 2 && pathParts[i + 2]?.startsWith('zig-')) {
+          break;
+        }
+      }
+      
+      return `${url.protocol}//${url.host}${basePath}`;
+    } catch (error) {
+      // Fallback: return the URL without path if parsing fails
+      const url = new URL(fullUrl);
+      return `${url.protocol}//${url.host}/`;
     }
   }
 }

@@ -5,6 +5,7 @@ import { listCommand } from './commands/list';
 import { cleanCommand } from './commands/clean';
 import { setupCommand } from './commands/setup';
 import { statsCommand } from './commands/stats';
+import { syncCommand } from './commands/sync';
 import { colors } from './utils/colors';
 import type { IVersionManager, IPlatformDetector } from './interfaces';
 import process from "node:process";
@@ -106,6 +107,19 @@ export function setupCLI(): Command {
         const { createApplication } = await import('./index');
         const installer = await createApplication();
         await statsCommand(installer.getConfigManager());
+      } catch (error) {
+        console.error(colors.red('Error:'), error);
+        process.exit(1);
+      }
+    });
+
+  // Sync command - manually synchronize community mirrors
+  program
+    .command('sync')
+    .description('Rebuild mirrors configuration from community list and reset all rankings')
+    .action(async () => {
+      try {
+        await syncCommand();
       } catch (error) {
         console.error(colors.red('Error:'), error);
         process.exit(1);
