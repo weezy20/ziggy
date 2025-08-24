@@ -1,6 +1,6 @@
 import { parse, stringify } from 'smol-toml';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { join, dirname } from 'path';
+import { join } from 'path';
 import { homedir } from 'os';
 import type { MirrorsConfig, Mirror } from '../types.js';
 
@@ -60,7 +60,7 @@ export class MirrorConfigManager {
             }
 
             const tomlContent = readFileSync(this.configPath, 'utf-8');
-            const parsed = parse(tomlContent) as MirrorsConfig;
+            const parsed = parse(tomlContent) as unknown as MirrorsConfig;
 
             // Validate the parsed configuration
             this.validateConfig(parsed);

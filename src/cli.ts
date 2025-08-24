@@ -15,7 +15,7 @@ export function setupCLI(): Command {
   program
     .name('ziggy')
     .description('Zig Version Manager - Download, install, and manage Zig versions')
-    .version('1.1.0');
+    .version('2.1.0');
 
   // Init command - creates new Zig project from template
   program
