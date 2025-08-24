@@ -72,10 +72,12 @@ ziggy setup
 - **`ziggy list`** - List installed Zig versions
 - **`ziggy clean`** - Clean up Zig installations
 - **`ziggy setup`** - Setup shell environment (adds source env to shell profile for PATH)
+- **`ziggy sync`** - Resync community mirrors
 
 
 
 ## Uninstallation
 Ziggy doesn't install anything on your system except the contents of `ZIGGY_DIR`. You can delete the folder and be done with it. If you want to clean up specific ziggy managed installations use `ziggy clean`. Ziggy will never do anything with your system zig. 
 
-If you used `bun install -g` to install ziggy then you can use `bun remove -g @weezy20/ziggy` to undo the same.
+If you used `bun install -g` to install ziggy then you can use `bun remove -g ziggy` to undo the same.
+
