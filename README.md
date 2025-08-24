@@ -10,7 +10,7 @@ A fast, easy to use, Zig programming language installer and version manager powe
 You can install ziggy globally using Bun:
 
 ```bash
-bun install -g @weezy20/ziggy
+bun install -g @weezy20/ziggy@latest
 ```
 
 Or you can use it without installing anything using `bunx`:
