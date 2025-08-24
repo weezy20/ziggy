@@ -98,7 +98,7 @@ describe('MirrorsManager', () => {
       ];
 
       const result = mirrorsManager.selectMirrorForDownload(mirrors);
-      expect(result.length).toBe(2); // MAX_MIRROR_RETRIES = 2
+      expect(result.length).toBe(3); // MAX_MIRROR_RETRIES = 3
       expect(mirrors).toContain(result[0]);
       expect(mirrors).toContain(result[1]);
     });

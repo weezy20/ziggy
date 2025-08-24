@@ -218,6 +218,16 @@ export class ConfigManager implements IConfigManager {
       }
     }
 
+    // Handle community mirrors
+    if (Array.isArray(parsed.communityMirrors)) {
+      config.communityMirrors = parsed.communityMirrors.filter(mirror => typeof mirror === 'string');
+    }
+
+    // Handle community mirrors last updated timestamp
+    if (typeof parsed.communityMirrorsLastUpdated === 'string') {
+      config.communityMirrorsLastUpdated = parsed.communityMirrorsLastUpdated;
+    }
+
     // Handle downloads section
     if (parsed.downloads && typeof parsed.downloads === 'object') {
       for (const [version, downloadData] of Object.entries(parsed.downloads)) {

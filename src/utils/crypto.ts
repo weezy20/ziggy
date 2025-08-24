@@ -9,7 +9,7 @@ import { Buffer } from "node:buffer";
 const log = console.log;
 
 // Import the minisign implementation
-const minisign = require('../minisign.js');
+import * as minisign from '../minisign.js';
 
 /**
  * Calculate SHA256 checksum of a file

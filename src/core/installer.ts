@@ -6,7 +6,7 @@
 import { join } from 'path';
 import { colors } from '../utils/colors.js';
 import { verifyChecksum, verifyMinisignature } from '../utils/crypto.js';
-import { MAX_MIRROR_RETRIES, ZIG_MINISIGN_PUBLIC_KEY } from '../constants.js';
+import { ZIG_MINISIGN_PUBLIC_KEY } from '../constants.js';
 
 // Simple log function
 const log = console.log;
@@ -590,6 +590,7 @@ export class ZigInstaller implements IZigInstaller {
     const selectedMirrors = this.mirrorsManager.selectMirrorForDownload(mirrorUrls);
     const urlsToTry = [...selectedMirrors, originalUrl];
 
+
     let lastError: Error | null = null;
     let downloadSuccess = false;
 
@@ -597,15 +598,14 @@ export class ZigInstaller implements IZigInstaller {
       const url = urlsToTry[i];
       if (!url) continue;
       
-      const isMirror = i < MAX_MIRROR_RETRIES;
-      const isOriginal = !isMirror;
+      const isOriginal = url === originalUrl;
 
       try {
         const hostname = new URL(url).hostname;
         if (isOriginal) {
           log(colors.blue(`Attempting download from: ${hostname} (official fallback)`));
         } else {
-          log(colors.blue(`Attempting download from: ${hostname} (mirror ${i + 1}/${MAX_MIRROR_RETRIES})`));
+          log(colors.blue(`Attempting download from: ${hostname} (mirror ${i + 1}/${selectedMirrors.length})`));
         }
         
         await this.downloadFile(url, targetPath);

@@ -13,7 +13,7 @@ export const ZIG_COMMUNITY_MIRRORS_URL = 'https://ziglang.org/download/community
 
 // Community mirrors cache settings
 export const MIRRORS_CACHE_DURATION_HOURS = 24;
-export const MAX_MIRROR_RETRIES = 2;
+export const MAX_MIRROR_RETRIES = 3;
 
 // Minisign verification
 export const ZIG_MINISIGN_PUBLIC_KEY = 'RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U';

@@ -54,9 +54,6 @@ export class MirrorsManager implements IMirrorsManager {
   public async updateMirrorsCache(): Promise<void> {
     const config = this.configManager.load();
     const cachedMirrors = config.communityMirrors;
-    const cacheAge = this.getCacheAge(config.communityMirrorsLastUpdated);
-    
-    log(colors.blue(`Cache status: cachedMirrors=${!!cachedMirrors}, cacheAge=${cacheAge}h, limit=${MIRRORS_CACHE_DURATION_HOURS}h`));
     
     try {
       log(colors.blue('Fetching updated community mirrors...'));
