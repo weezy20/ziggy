@@ -122,12 +122,20 @@ export class MirrorsManager implements IMirrorsManager {
     const mirrorUrls: string[] = [];
     const mirrors = await this.getCommunityMirrors();
     
-    // Convert original URL to use mirrors
-    const urlParts = originalUrl.replace('https://ziglang.org/download/', '');
+    // Per official algorithm: GET "mirror/filename" where filename is the basename
+    // Extract just the filename from the original URL
+    const filename = originalUrl.split('/').pop() || '';
+    
     for (const mirror of mirrors) {
       const trimmedMirror = mirror.trim();
+      if (!trimmedMirror) continue;
+      
+      // Normalize mirror URL - remove trailing slash
       const baseUrl = trimmedMirror.endsWith('/') ? trimmedMirror.slice(0, -1) : trimmedMirror;
-      mirrorUrls.push(`${baseUrl}/${urlParts}?source=ziggy`);
+      
+      // Construct mirror URL: mirror_base + / + filename
+      // Example: https://zig.squirl.dev + / + zig-linux-x86_64-0.11.0.tar.xz
+      mirrorUrls.push(`${baseUrl}/${filename}?source=ziggy`);
     }
 
     return mirrorUrls;
@@ -184,7 +192,8 @@ export class MirrorsManager implements IMirrorsManager {
     if (existingMirrorIndex >= 0) {
       // Update existing mirror rank
       config.mirrors[existingMirrorIndex]!.rank += rankIncrement;
-      log(colors.yellow(`⚠ Updated mirror rank: ${url} (rank: ${config.mirrors[existingMirrorIndex]!.rank}, failure: ${failureType})`));
+      // Only log for debugging - reduce noise during normal downloads
+      // log(colors.yellow(`⚠ Updated mirror rank: ${url} (rank: ${config.mirrors[existingMirrorIndex]!.rank}, failure: ${failureType})`));
     } else {
       // Add new mirror with initial rank + increment
       const newMirror: Mirror = {
@@ -192,7 +201,8 @@ export class MirrorsManager implements IMirrorsManager {
         rank: 1 + rankIncrement
       };
       config.mirrors.push(newMirror);
-      log(colors.yellow(`⚠ Added new mirror with failure rank: ${url} (rank: ${newMirror.rank}, failure: ${failureType})`));
+      // Only log for debugging - reduce noise during normal downloads
+      // log(colors.yellow(`⚠ Added new mirror with failure rank: ${url} (rank: ${newMirror.rank}, failure: ${failureType})`));
     }
 
     // Persist changes immediately
@@ -238,7 +248,8 @@ export class MirrorsManager implements IMirrorsManager {
       availableWeights.splice(selectedIndex, 1);
     }
 
-    log(colors.blue(`Selected ${selectedMirrors.length} mirrors for download attempt`));
+    // Reduce logging noise during downloads
+    // log(colors.blue(`Selected ${selectedMirrors.length} mirrors for download attempt`));
     return selectedMirrors;
   }
 

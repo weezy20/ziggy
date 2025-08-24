@@ -606,17 +606,26 @@ export class ZigInstaller implements IZigInstaller {
     // Use selectBestMirrors for intelligent mirror selection based on rankings
     const selectedMirrorBases = this.mirrorsManager.selectBestMirrors(3); // 3-retry logic as per requirements
     
-    // Convert base mirror URLs to actual download URLs for this specific file
+    // Convert mirror URLs to actual download URLs for this specific file
     const selectedMirrors: string[] = [];
-    const urlParts = originalUrl.replace('https://ziglang.org/download/', '');
     
-    for (const mirrorBase of selectedMirrorBases) {
-      const trimmedMirror = mirrorBase.trim();
+    // Extract just the filename from the original URL
+    // Original: https://ziglang.org/download/0.11.0/zig-linux-x86_64-0.11.0.tar.xz
+    // Extract: zig-linux-x86_64-0.11.0.tar.xz
+    const filename = originalUrl.split('/').pop() || '';
+    
+    for (const mirrorUrl of selectedMirrorBases) {
+      const trimmedMirror = mirrorUrl.trim();
+      if (!trimmedMirror) continue;
+      
+      // Per official algorithm: GET "mirror/filename" where mirror is the base URL
+      // Mirror URLs from community list are base URLs (e.g., https://zig.linus.dev/zig)
       const baseUrl = trimmedMirror.endsWith('/') ? trimmedMirror.slice(0, -1) : trimmedMirror;
-      selectedMirrors.push(`${baseUrl}/${urlParts}?source=ziggy`);
+      selectedMirrors.push(`${baseUrl}/${filename}?source=ziggy`);
     }
     
-    const urlsToTry = [...selectedMirrors, originalUrl]; // Always fallback to ziglang.org/download
+    // Try mirrors first, then fallback to ziglang.org as final option
+    const urlsToTry = [...selectedMirrors, originalUrl];
 
     let lastError: Error | null = null;
     let downloadSuccess = false;
@@ -632,18 +641,19 @@ export class ZigInstaller implements IZigInstaller {
       try {
         const hostname = new URL(url).hostname;
         if (isOriginal) {
-          log(colors.blue(`Attempting download from: ${hostname} (official fallback)`));
+          log(colors.blue(`Downloading from official source: ${hostname}`));
         } else {
-          log(colors.blue(`Attempting download from: ${hostname} (mirror ${i + 1}/${selectedMirrors.length})`));
+          log(colors.blue(`Trying mirror ${i + 1}/${selectedMirrors.length}: ${hostname}`));
         }
         
         await this.downloadFile(url, targetPath);
         
         // NEVER SKIP signature verification - as per requirements
-        log(colors.blue('Downloading and verifying signature...'));
-        // Remove ?source=ziggy from tarball URL, add .minisig, then add ?source=ziggy back
-        const baseUrl = url.replace('?source=ziggy', '');
-        const signatureUrl = `${baseUrl}.minisig?source=ziggy`;
+        log(colors.blue('Verifying download authenticity...'));
+        
+        // Download signature from the SAME mirror as per official algorithm
+        // The signature must come from the same source as the tarball
+        const signatureUrl = `${url.replace('?source=ziggy', '')}.minisig?source=ziggy`;
         const signatureBuffer = await this.downloadSignature(signatureUrl);
         
         if (!signatureBuffer) {
@@ -658,7 +668,6 @@ export class ZigInstaller implements IZigInstaller {
         }
 
         // Verify minisign signature - REQUIRED step
-        log(colors.blue('Verifying minisign signature...'));
         const signatureValid = verifyMinisignature(targetPath, signatureBuffer, ZIG_MINISIGN_PUBLIC_KEY);
         if (!signatureValid) {
           // Signature verification failure - increment rank by 2
@@ -674,7 +683,6 @@ export class ZigInstaller implements IZigInstaller {
 
         // Verify checksum if available
         if (downloadInfo.checksum) {
-          log(colors.blue('Verifying download checksum...'));
           const checksumValid = verifyChecksum(targetPath, downloadInfo.checksum);
           if (!checksumValid) {
             // Checksum verification failure - increment rank by 2
@@ -686,7 +694,7 @@ export class ZigInstaller implements IZigInstaller {
             this.fileSystemManager.safeRemove(targetPath);
             continue;
           }
-          log(colors.green('✓ Checksum verified'));
+          // Checksum verified - no need to log for every download
         }
 
         // Update download info with verification status
@@ -703,21 +711,36 @@ export class ZigInstaller implements IZigInstaller {
         lastError = error as Error;
         const hostname = new URL(url).hostname;
         
-        // Distinguish between timeout and verification failures
+        // Handle specific HTTP status codes as per official algorithm
         const errorMessage = error.message.toLowerCase();
         const isTimeoutError = errorMessage.includes('timeout') || 
                               errorMessage.includes('network') || 
-                              errorMessage.includes('fetch') ||
-                              errorMessage.includes('404') ||
-                              errorMessage.includes('http error');
+                              errorMessage.includes('fetch');
         
-        if (!isOriginal && isTimeoutError) {
-          // Network/timeout failure - increment rank by 1
+        // Handle specific HTTP status codes
+        const is503Error = errorMessage.includes('503'); // Scheduled downtime
+        const is429Error = errorMessage.includes('429'); // Rate limiting
+        const is404Error = errorMessage.includes('404'); // Not found (acceptable for old versions)
+        
+        const isHttpError = is503Error || is429Error || is404Error;
+        
+        if (!isOriginal && (isTimeoutError || isHttpError)) {
+          // Network/timeout/HTTP errors - increment rank by 1
           const baseMirrorUrl = this.getBaseMirrorUrl(url);
           this.mirrorsManager.updateMirrorRank(baseMirrorUrl, 'timeout');
         }
         
-        log(colors.yellow(`⚠ Download failed from ${hostname}: ${error}`));
+        // Provide specific error messages for different HTTP status codes
+        let errorMsg = error.message;
+        if (is503Error) {
+          errorMsg = 'Mirror temporarily unavailable (503)';
+        } else if (is429Error) {
+          errorMsg = 'Rate limited by mirror (429)';
+        } else if (is404Error) {
+          errorMsg = 'File not found on mirror (404)';
+        }
+        
+        log(colors.yellow(`⚠ Download failed from ${hostname}: ${errorMsg}`));
         this.fileSystemManager.safeRemove(targetPath);
         continue;
       }
