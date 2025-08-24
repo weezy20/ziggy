@@ -119,7 +119,10 @@ export function setupCLI(): Command {
     .description('Rebuild mirrors configuration from community list and reset all rankings')
     .action(async () => {
       try {
-        await syncCommand();
+        const { createApplication } = await import('./index');
+        const installer = await createApplication();
+        const mirrorsManager = await installer.getMirrorsManager();
+        await syncCommand(mirrorsManager);
       } catch (error) {
         console.error(colors.red('Error:'), error);
         process.exit(1);

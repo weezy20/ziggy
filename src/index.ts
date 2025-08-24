@@ -481,6 +481,10 @@ export class ZigInstaller {
     return this.configManager;
   }
 
+  public async getMirrorsManager(): Promise<IMirrorsManager> {
+    return await this.container.resolveAsync<IMirrorsManager>('mirrorsManager');
+  }
+
   // Delegate core installer methods for backward compatibility
   public async downloadVersion(version: string): Promise<void> {
     if (!this.coreInstaller) {

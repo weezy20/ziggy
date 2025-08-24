@@ -65,6 +65,13 @@ export class ZigInstaller implements IZigInstaller {
   }
 
   /**
+   * Get the mirrors manager instance
+   */
+  public getMirrorsManager(): IMirrorsManager {
+    return this.mirrorsManager;
+  }
+
+  /**
    * Download and install a specific Zig version
    */
   public async downloadVersion(version: string): Promise<void> {
