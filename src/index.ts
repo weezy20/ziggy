@@ -1,6 +1,5 @@
 #!/usr/bin/env bun
 
-// import { ZIG_ASCII_ART } from './ascii-art';
 import { join, resolve, dirname } from 'path';
 import * as clack from '@clack/prompts';
 import which from 'which';

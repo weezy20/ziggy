@@ -45,10 +45,10 @@ export class ConfigManager implements IConfigManager {
     try {
       const content = this.fileSystemManager.readFile(this.configPath);
       const parsed = parse(content);
-      
+
       // Validate and transform the parsed TOML into our config structure
       const config = this.validateAndTransformConfig(parsed);
-      
+
       // Check if config version is outdated
       if (!config.configVersion || config.configVersion < CONFIG_VERSION) {
         console.log('📁 Config version outdated. Rebuilding ziggy.toml...');
@@ -64,12 +64,12 @@ export class ConfigManager implements IConfigManager {
         this.save(rebuiltConfig);
         return rebuiltConfig;
       }
-      
+
       return config;
     } catch (error) {
       console.warn('⚠ Warning: Could not parse ziggy.toml, attempting migration or using defaults');
       console.warn('Error details:', error);
-      
+
       // Try to migrate from old format
       try {
         const content = this.fileSystemManager.readFile(this.configPath);
@@ -82,7 +82,7 @@ export class ConfigManager implements IConfigManager {
       } catch (_migrationError) {
         console.warn('Could not migrate legacy config format');
       }
-      
+
       return defaultConfig;
     }
   }
@@ -95,10 +95,10 @@ export class ConfigManager implements IConfigManager {
       // Transform config to TOML-friendly format
       const tomlData = this.transformConfigForToml(config);
       const tomlContent = stringify(tomlData);
-      
+
       // Add header comment
       const finalContent = '# Ziggy Configuration\n\n' + tomlContent;
-      
+
       this.fileSystemManager.writeFile(this.configPath, finalContent);
     } catch (error) {
       throw new Error(`Failed to save configuration: ${error instanceof Error ? error.message : String(error)}`);
@@ -109,9 +109,9 @@ export class ConfigManager implements IConfigManager {
    * Scan existing installations and build configuration
    */
   public scanExistingInstallations(showNoConfigMessage: boolean = true): ZiggyConfig {
-    const config: ZiggyConfig = { 
+    const config: ZiggyConfig = {
       configVersion: CONFIG_VERSION,
-      downloads: {} 
+      downloads: {}
     };
     const versionsDir = join(this.ziggyDir, 'versions');
 
@@ -135,15 +135,15 @@ export class ConfigManager implements IConfigManager {
 
     if (versionDirs.length > 0) {
       console.log('Found existing Zig installations:');
-      
+
       for (const version of versionDirs) {
         const versionPath = join(versionsDir, version);
         const zigExecutable = process.platform === 'win32' ? 'zig.exe' : 'zig';
-        
+
         // First, try to find zig executable directly in the version directory
         let zigBinary = join(versionPath, zigExecutable);
         let actualZigPath = versionPath;
-        
+
         if (!this.fileSystemManager.fileExists(zigBinary)) {
           // If not found directly, look in subdirectories (common after extraction)
           try {
@@ -151,7 +151,7 @@ export class ConfigManager implements IConfigManager {
               const fullPath = join(versionPath, dir);
               return this.fileSystemManager.isDirectory(fullPath);
             });
-            
+
             // Look for zig executable in subdirectories
             for (const subDir of subDirs) {
               const subDirPath = join(versionPath, subDir);
@@ -167,7 +167,7 @@ export class ConfigManager implements IConfigManager {
             continue;
           }
         }
-        
+
         if (this.fileSystemManager.fileExists(zigBinary)) {
           config.downloads[version] = {
             version: version,
@@ -190,8 +190,8 @@ export class ConfigManager implements IConfigManager {
    * Validate and transform parsed TOML data into ZiggyConfig
    */
   private validateAndTransformConfig(parsed: Record<string, unknown>): ZiggyConfig {
-    const config: ZiggyConfig = { 
-      downloads: {} 
+    const config: ZiggyConfig = {
+      downloads: {}
     };
 
     // Handle configVersion - set from parsed data or default to current version
@@ -233,7 +233,7 @@ export class ConfigManager implements IConfigManager {
       for (const [version, downloadData] of Object.entries(parsed.downloads)) {
         if (downloadData && typeof downloadData === 'object') {
           const data = downloadData as Record<string, unknown>;
-          
+
           // Validate required fields
           if (typeof data.path === 'string' && typeof data.status === 'string') {
             config.downloads[version] = {
@@ -277,30 +277,30 @@ export class ConfigManager implements IConfigManager {
     }
 
     if (Object.keys(config.downloads).length > 0) {
-      tomlData.downloads = {};
+      tomlData.downloads = {} as Record<string, unknown>;
       for (const [version, info] of Object.entries(config.downloads)) {
-        tomlData.downloads[version] = {
+        (tomlData.downloads as Record<string, unknown>)[version] = {
           path: info.path,
           downloadedAt: info.downloadedAt,
           status: info.status
         };
-        
+
         if (info.isSystemWide) {
-          tomlData.downloads[version].isSystemWide = info.isSystemWide;
+          (tomlData.downloads as Record<string, any>)[version].isSystemWide = info.isSystemWide;
         }
-        
+
         // Add security verification fields if present
         if (info.checksum) {
-          tomlData.downloads[version].checksum = info.checksum;
+          (tomlData.downloads as Record<string, any>)[version].checksum = info.checksum;
         }
         if (info.checksumVerified !== undefined) {
-          tomlData.downloads[version].checksumVerified = info.checksumVerified;
+          (tomlData.downloads as Record<string, any>)[version].checksumVerified = info.checksumVerified;
         }
         if (info.minisignVerified !== undefined) {
-          tomlData.downloads[version].minisignVerified = info.minisignVerified;
+          (tomlData.downloads as Record<string, any>)[version].minisignVerified = info.minisignVerified;
         }
         if (info.downloadUrl) {
-          tomlData.downloads[version].downloadUrl = info.downloadUrl;
+          (tomlData.downloads as Record<string, any>)[version].downloadUrl = info.downloadUrl;
         }
       }
     }
@@ -345,9 +345,9 @@ export class ConfigManager implements IConfigManager {
    */
   private migrateFromLegacyFormat(content: string): ZiggyConfig | null {
     try {
-      const config: ZiggyConfig = { 
+      const config: ZiggyConfig = {
         configVersion: CONFIG_VERSION,
-        downloads: {} 
+        downloads: {}
       };
       const lines = content.split('\n');
       let currentSection = '';
