@@ -61,35 +61,29 @@ export class ProjectUI {
       { value: 'back', label: '← Back to main menu' }
     ];
 
-    // Add Ziggy templates
+    // Add all templates in the proper order
     const availableTemplates = this.templateManager.getAllTemplateInfo();
     for (const template of availableTemplates) {
-      templateChoices.push({
-        value: template.name,
-        label: template.displayName,
-        hint: template.description
-      });
-    }
-
-    // Add zig init option if Zig is available
-    if (hasActiveZig) {
-      const zigVersion = currentVersion === 'system' && this.config.systemZig
-        ? this.config.systemZig.version
-        : currentVersion;
-
-      templateChoices.push({
-        value: 'zig-init',
-        label: `Standard Zig template (Same as \`zig init\`)`,
-        hint: `Using Zig ${zigVersion}`
-      });
+      // For zig-init templates, check if Zig is available
+      if (template.type === 'zig-init' && !hasActiveZig) {
+        templateChoices.push({
+          value: template.name,
+          label: `${template.displayName} (requires active Zig)`,
+          hint: `${template.description} - Install Zig first`
+        });
+      } else {
+        templateChoices.push({
+          value: template.name,
+          label: template.displayName,
+          hint: template.description
+        });
+      }
     }
 
     const templateChoice = await clack.select({
-      message: hasActiveZig
-        ? 'Choose project template:'
-        : 'Choose project template: (zig init requires an active Zig installation)',
+      message: 'Choose project template:',
       options: templateChoices,
-      initialValue: 'standard'
+      initialValue: 'barebones' // Default to barebones (first option)
     });
 
     if (clack.isCancel(templateChoice) || templateChoice === 'back') {
@@ -97,17 +91,26 @@ export class ProjectUI {
     }
 
     try {
-      if (templateChoice === 'zig-init') {
-        await this.handleZigInitTemplate(projectName, targetPath);
-      } else {
-        await this.handleZiggyTemplate(templateChoice, projectName, targetPath);
-      }
+      await this.handleTemplateCreation(templateChoice, projectName, targetPath);
     } catch (error) {
       log(colors.red(`❌ Failed to create project: ${error}`));
     }
   }
 
-  private async handleZiggyTemplate(templateName: string, projectName: string, targetPath: string): Promise<void> {
+  private async handleTemplateCreation(templateName: string, projectName: string, targetPath: string): Promise<void> {
+    const templateInfo = this.templateManager.getTemplateInfo(templateName);
+    
+    // Check if zig-init template requires active Zig
+    if (templateInfo?.type === 'zig-init') {
+      const currentVersion = this.versionManager.getCurrentVersion();
+      const hasActiveZig = currentVersion || this.config.systemZig;
+      
+      if (!hasActiveZig) {
+        log(colors.red('❌ This template requires an active Zig installation. Please install Zig first.'));
+        return;
+      }
+    }
+
     const spinner = clack.spinner();
     spinner.start('Creating project...');
 
@@ -118,11 +121,17 @@ export class ProjectUI {
     spinner.stop(colors.green('🎉 Project created successfully!'));
 
     log();
-    log(colors.green('🎉 Project created successfully with Ziggy template!'));
+    log(colors.green('🎉 Project created successfully!'));
     log();
     log(colors.cyan('Next steps:'));
     log(colors.gray(`  cd ${projectName}`));
     log(colors.gray('  zig build run'));
+    
+    // Add template-specific instructions
+    if (templateInfo?.name === 'minimal') {
+      log(colors.gray('  zig build test'));
+    }
+    
     log();
 
     // Show post-action options
@@ -132,57 +141,6 @@ export class ProjectUI {
 
     if (action === 'create-another') {
       await this.handleCreateProjectTUI();
-    }
-  }
-
-  private async handleZigInitTemplate(projectName: string, targetPath: string): Promise<void> {
-    const spinner = clack.spinner();
-    spinner.start('Creating project with zig init...');
-
-    try {
-      // Create directory first
-      this.fileSystemManager.createDirectory(targetPath, true);
-
-      // Run zig init in the target directory
-      const result = Bun.spawnSync(['zig', 'init'], {
-        cwd: targetPath,
-        stdout: 'pipe',
-        stderr: 'pipe'
-      });
-
-      if (result.exitCode !== 0) {
-        const errorOutput = result.stderr.toString();
-        throw new Error(`zig init failed: ${errorOutput}`);
-      }
-
-      spinner.stop(colors.green('🎉 Project created successfully!'));
-
-      log();
-      log(colors.green('🎉 Project created successfully with zig init!'));
-      log();
-      log(colors.cyan('Next steps:'));
-      log(colors.gray(`  cd ${projectName}`));
-      log(colors.gray('  zig build run'));
-      log();
-
-      // Show post-action options
-      const action = await this.showPostActionOptions([
-        { value: 'create-another', label: 'Create another project' }
-      ]);
-
-      if (action === 'create-another') {
-        await this.handleCreateProjectTUI();
-      }
-
-    } catch (error) {
-      spinner.stop('Failed');
-      
-      // Clean up directory if creation failed
-      if (this.fileSystemManager.fileExists(targetPath)) {
-        this.fileSystemManager.safeRemove(targetPath, true);
-      }
-      
-      throw error;
     }
   }
 

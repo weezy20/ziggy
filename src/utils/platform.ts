@@ -15,6 +15,7 @@ export interface IPlatformDetector {
   getShellInfo(): ShellInfo;
   isZiggyConfigured(binDir: string): boolean;
   hasEnvFileConfigured(envPath: string): boolean;
+  isZiggyInPath(binDir: string): boolean;
   getZiggyDir(): string;
   expandHomePath(path: string): string;
   getShellSourceLine(envPath: string): string;

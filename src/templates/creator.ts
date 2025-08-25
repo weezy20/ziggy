@@ -5,15 +5,29 @@
 import { resolve, join } from 'path';
 import { extract as extractZip } from 'zip-lib';
 import type { IProjectCreator, IFileSystemManager } from '../interfaces.js';
+import type { IPlatformDetector } from '../utils/platform.js';
 import type { TemplateManager, TemplateInfo } from './manager.js';
+import { ZigInitHandler } from './zig-init-handler.js';
+import { TemplateCacheManager } from './cache-manager.js';
+import { BuildZigZonGenerator } from './build-zig-zon-generator.js';
+import { getStandardGitignore } from './embedded/gitignore.js';
 import { colors } from '../utils/colors.js';
 import process from "node:process";
 
 export class ProjectCreator implements IProjectCreator {
+  private zigInitHandler: ZigInitHandler;
+  private cacheManager: TemplateCacheManager;
+  private buildZigZonGenerator: BuildZigZonGenerator;
+
   constructor(
     private templateManager: TemplateManager,
-    private fileSystemManager: IFileSystemManager
-  ) {}
+    private fileSystemManager: IFileSystemManager,
+    private platformDetector: IPlatformDetector
+  ) {
+    this.zigInitHandler = new ZigInitHandler(platformDetector, fileSystemManager);
+    this.cacheManager = new TemplateCacheManager(fileSystemManager, platformDetector);
+    this.buildZigZonGenerator = new BuildZigZonGenerator(fileSystemManager, platformDetector);
+  }
 
   public async createFromTemplate(
     templateName: string, 
@@ -33,21 +47,33 @@ export class ProjectCreator implements IProjectCreator {
       throw new Error(`Template '${templateName}' not found`);
     }
 
-    if (templateName === 'lean') {
-      await this.createLeanProject(projectName, absolutePath, onProgress);
-    } else {
-      await this.createFromRemoteTemplate(template, projectName, absolutePath, onProgress);
+    // Handle different template types
+    switch (template.type) {
+      case 'lean':
+        await this.createMinimalProject(projectName, absolutePath, onProgress);
+        break;
+      case 'cached':
+        await this.createCachedProject(template, projectName, absolutePath, onProgress);
+        break;
+      case 'zig-init':
+        await this.createFromZigInit(template, projectName, absolutePath, onProgress);
+        break;
+      default:
+        throw new Error(`Unsupported template type: ${template.type}`);
     }
 
+    // Add .gitignore to all project types
+    await this.addGitignore(absolutePath);
+    
     await this.initializeProject(absolutePath);
   }
 
-  private createLeanProject(
+  private async createMinimalProject(
     projectName: string,
     targetPath: string,
     onProgress?: (message: string) => void
   ): Promise<void> {
-    onProgress?.('Creating lean project structure...');
+    onProgress?.('Creating minimal project structure...');
 
     // Create project directory
     this.fileSystemManager.createDirectory(targetPath, true);
@@ -138,7 +164,72 @@ zig build test
     this.fileSystemManager.writeFile(join(srcDir, 'main.zig'), mainZig);
     this.fileSystemManager.writeFile(join(targetPath, 'README.md'), readme);
 
-    onProgress?.('Lean project created successfully!');
+    // Generate build.zig.zon if active Zig version is available
+    onProgress?.('Generating build.zig.zon...');
+    try {
+      await this.buildZigZonGenerator.generateForProject(targetPath, projectName);
+    } catch (error) {
+      console.warn(`Failed to generate build.zig.zon: ${error}`);
+      // Continue without build.zig.zon - this is optional
+    }
+
+    onProgress?.('Minimal project created successfully!');
+  }
+
+  /**
+   * Create project from cached template with fallback to embedded content
+   */
+  private async createCachedProject(
+    template: TemplateInfo,
+    projectName: string,
+    targetPath: string,
+    onProgress?: (message: string) => void
+  ): Promise<void> {
+    onProgress?.('Setting up cached template project...');
+
+    // Create project directory
+    this.fileSystemManager.createDirectory(targetPath, true);
+
+    try {
+      // Get template files from cache manager (handles download, cache, and fallback)
+      const cacheUrl = template.cacheUrl;
+      if (!cacheUrl) {
+        throw new Error(`No cache URL configured for template: ${template.name}`);
+      }
+
+      onProgress?.('Loading template files...');
+      const templateFiles = await this.cacheManager.getTemplate(template.name, cacheUrl);
+
+      // Copy files from cache to target directory
+      for (const [fileName, content] of Object.entries(templateFiles)) {
+        const targetFilePath = join(targetPath, fileName);
+        
+        // Replace placeholder project name if needed
+        let processedContent = content;
+        if (fileName === 'build.zig') {
+          // Replace "app" with actual project name in build.zig
+          processedContent = content.replace(
+            /\.name = "app"/g, 
+            `.name = "${projectName}"`
+          );
+        }
+        
+        this.fileSystemManager.writeFile(targetFilePath, processedContent);
+      }
+
+      onProgress?.('Cached project created successfully!');
+    } catch (error) {
+      // Clean up if creation failed
+      if (this.fileSystemManager.fileExists(targetPath)) {
+        try {
+          this.fileSystemManager.safeRemove(targetPath, true);
+        } catch (cleanupError) {
+          console.warn(colors.yellow(`⚠ Failed to clean up directory: ${cleanupError}`));
+        }
+      }
+      
+      throw new Error(`Failed to create cached project: ${error}`);
+    }
   }
 
   private async createFromRemoteTemplate(
@@ -153,7 +244,11 @@ zig build test
       onProgress?.('Downloading template...');
       
       // Download the zip archive
-      const response = await fetch(template.url);
+      const templateUrl = template.url || template.cacheUrl;
+      if (!templateUrl) {
+        throw new Error(`No URL configured for template: ${template.name}`);
+      }
+      const response = await fetch(templateUrl);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -250,6 +345,41 @@ zig build test
     }
   }
 
+  private async createFromZigInit(
+    template: TemplateInfo,
+    projectName: string,
+    targetPath: string,
+    onProgress?: (message: string) => void
+  ): Promise<void> {
+    onProgress?.('Checking Zig installation...');
+
+    // Validate Zig installation first
+    const isZigAvailable = await this.zigInitHandler.validateZigInstallation();
+    if (!isZigAvailable) {
+      throw new Error(
+        'Zig is not available or not properly installed. ' +
+        'Please install Zig using "ziggy use <version>" or ensure Zig is in your PATH.'
+      );
+    }
+
+    onProgress?.('Creating project with zig init...');
+
+    // Execute zig init with the template's flags
+    const result = await this.zigInitHandler.executeZigInit({
+      flags: template.zigInitFlags || [],
+      projectName,
+      targetPath
+    }, onProgress);
+
+    if (!result.success) {
+      const errorMessage = result.error || 'Unknown error occurred during zig init';
+      const suggestion = this.zigInitHandler.getErrorSuggestion(errorMessage);
+      throw new Error(`${errorMessage}\n\n${suggestion}`);
+    }
+
+    onProgress?.('Project created successfully with zig init!');
+  }
+
   private async copyDirectoryRecursive(srcDir: string, destDir: string): Promise<void> {
     this.fileSystemManager.createDirectory(destDir, true);
     
@@ -265,6 +395,19 @@ zig build test
         const content = this.fileSystemManager.readFile(srcPath);
         this.fileSystemManager.writeFile(destPath, content);
       }
+    }
+  }
+
+  /**
+   * Add standard .gitignore file to project
+   */
+  private async addGitignore(projectPath: string): Promise<void> {
+    const gitignorePath = join(projectPath, '.gitignore');
+    
+    // Only create .gitignore if it doesn't already exist
+    if (!this.fileSystemManager.fileExists(gitignorePath)) {
+      const gitignoreContent = getStandardGitignore();
+      this.fileSystemManager.writeFile(gitignorePath, gitignoreContent);
     }
   }
 

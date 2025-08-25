@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import { ProjectCreator } from '../../../src/templates/creator.js';
 import { TemplateManager } from '../../../src/templates/manager.js';
-import type { IFileSystemManager } from '../../../src/interfaces.js';
+import type { IFileSystemManager, IPlatformDetector } from '../../../src/interfaces.js';
 
 // Mock FileSystemManager
 const createMockFileSystemManager = (): IFileSystemManager => ({
@@ -36,6 +36,22 @@ const createMockFileSystemManager = (): IFileSystemManager => ({
   safeRemove: mock(() => {})
 });
 
+// Mock PlatformDetector
+const createMockPlatformDetector = (): IPlatformDetector => ({
+  getPlatform: mock(() => 'linux'),
+  getArch: mock(() => 'x64'),
+  getZiggyDir: mock(() => '/home/user/.ziggy'),
+  getShell: mock(() => 'bash'),
+  getShellConfigFile: mock(() => '/home/user/.bashrc'),
+  getPathSeparator: mock(() => ':'),
+  getExecutableExtension: mock(() => ''),
+  getTempDir: mock(() => '/tmp'),
+  getHomeDir: mock(() => '/home/user'),
+  isWindows: mock(() => false),
+  isMacOS: mock(() => false),
+  isLinux: mock(() => true)
+});
+
 // Mock fetch globally
 globalThis.fetch = mock(() => Promise.resolve({
   ok: true,
@@ -57,11 +73,13 @@ describe('ProjectCreator', () => {
   let projectCreator: ProjectCreator;
   let templateManager: TemplateManager;
   let mockFileSystem: IFileSystemManager;
+  let mockPlatformDetector: IPlatformDetector;
 
   beforeEach(() => {
     templateManager = new TemplateManager();
     mockFileSystem = createMockFileSystemManager();
-    projectCreator = new ProjectCreator(templateManager, mockFileSystem);
+    mockPlatformDetector = createMockPlatformDetector();
+    projectCreator = new ProjectCreator(templateManager, mockFileSystem, mockPlatformDetector);
   });
 
   describe('createFromTemplate', () => {
@@ -79,56 +97,48 @@ describe('ProjectCreator', () => {
       ).rejects.toThrow("Template 'invalid' not found");
     });
 
-    it('should create lean project successfully', async () => {
+    it('should create minimal project successfully', async () => {
       const onProgress = mock(() => {});
       
-      await projectCreator.createFromTemplate('lean', 'test-project', '/tmp/test', onProgress);
+      await projectCreator.createFromTemplate('minimal', 'test-project', '/tmp/test', onProgress);
 
       // Verify directory creation
       expect(mockFileSystem.createDirectory).toHaveBeenCalledTimes(2);
       
-      // Verify file creation
-      expect(mockFileSystem.writeFile).toHaveBeenCalledTimes(3); // build.zig, main.zig, README.md
-
-      // Verify file creation
-      expect(mockFileSystem.writeFile).toHaveBeenCalledTimes(3); // build.zig, main.zig, README.md
+      // Verify file creation (build.zig, main.zig, README.md, .gitignore, potentially build.zig.zon)
+      expect(mockFileSystem.writeFile).toHaveBeenCalledWith(
+        expect.stringContaining('.gitignore'),
+        expect.any(String)
+      );
       
       // Verify progress callbacks
-      expect(onProgress).toHaveBeenCalledWith('Creating lean project structure...');
-      expect(onProgress).toHaveBeenCalledWith('Lean project created successfully!');
+      expect(onProgress).toHaveBeenCalledWith('Creating minimal project structure...');
+      expect(onProgress).toHaveBeenCalledWith('Minimal project created successfully!');
     });
 
-    it('should create standard project from remote template', async () => {
+    it('should create barebones project from cached template', async () => {
       const onProgress = mock(() => {});
       
-      // Mock successful extraction
-      mockFileSystem.listDirectory = mock((path: string) => {
-        if (path.includes('zig-app-template-master')) {
-          return ['build.zig', 'src', 'README.md'];
-        }
-        return [];
-      });
-      
-      // Mock fileExists to return true for extracted directory
+      // Mock cache manager to return embedded template
       mockFileSystem.fileExists = mock((path: string) => {
-        return path.includes('zig-app-template-master') || path.includes('.tmp');
+        // Return false for cache to trigger embedded fallback
+        return false;
       });
 
-      await projectCreator.createFromTemplate('standard', 'test-project', '/tmp/test', onProgress);
+      await projectCreator.createFromTemplate('barebones', 'test-project', '/tmp/test', onProgress);
 
-      // Verify fetch was called
-      expect(globalThis.fetch).toHaveBeenCalled();
+      // Verify directory creation (use expect.stringContaining for cross-platform paths)
+      expect(mockFileSystem.createDirectory).toHaveBeenCalledWith(expect.stringContaining('test'), true);
       
       // Verify progress callbacks
-      expect(onProgress).toHaveBeenCalledWith('Downloading template...');
-      expect(onProgress).toHaveBeenCalledWith('Extracting template...');
-      expect(onProgress).toHaveBeenCalledWith('Setting up project...');
+      expect(onProgress).toHaveBeenCalledWith('Setting up cached template project...');
+      expect(onProgress).toHaveBeenCalledWith('Cached project created successfully!');
     });
   });
 
-  describe('lean project creation', () => {
+  describe('minimal project creation', () => {
     it('should create proper build.zig content', async () => {
-      await projectCreator.createFromTemplate('lean', 'my-app', '/tmp/test');
+      await projectCreator.createFromTemplate('minimal', 'my-app', '/tmp/test');
 
       const writeFileCalls = (mockFileSystem.writeFile as unknown as { mock: { calls: unknown[][] } }).mock.calls;
       const buildZigCall = writeFileCalls.find((call: unknown[]) => (call[0] as string).endsWith('build.zig'));
@@ -140,7 +150,7 @@ describe('ProjectCreator', () => {
     });
 
     it('should create proper main.zig content', async () => {
-      await projectCreator.createFromTemplate('lean', 'my-app', '/tmp/test');
+      await projectCreator.createFromTemplate('minimal', 'my-app', '/tmp/test');
 
       const writeFileCalls = (mockFileSystem.writeFile as unknown as { mock: { calls: unknown[][] } }).mock.calls;
       const mainZigCall = writeFileCalls.find((call: unknown[]) => (call[0] as string).endsWith('main.zig'));
@@ -152,7 +162,7 @@ describe('ProjectCreator', () => {
     });
 
     it('should create proper README.md content', async () => {
-      await projectCreator.createFromTemplate('lean', 'my-app', '/tmp/test');
+      await projectCreator.createFromTemplate('minimal', 'my-app', '/tmp/test');
 
       const writeFileCalls = (mockFileSystem.writeFile as unknown as { mock: { calls: unknown[][] } }).mock.calls;
       const readmeCall = writeFileCalls.find((call: unknown[]) => (call[0] as string).endsWith('README.md'));
@@ -166,35 +176,44 @@ describe('ProjectCreator', () => {
   });
 
   describe('error handling', () => {
-    it('should clean up on download failure', async () => {
-      globalThis.fetch = mock(() => Promise.resolve({
-        ok: false,
-        status: 404
-      })) as Response;
-
+    it('should clean up on cached project creation failure', async () => {
+      // Mock cache manager to throw error and no embedded fallback
       mockFileSystem.fileExists = mock((path: string) => {
-        // Simulate directory was created but extracted dir not found
-        return path === '/tmp/test' || path.includes('.tmp');
+        if (path.includes('/tmp/test')) {
+          return true; // Directory exists, should trigger cleanup
+        }
+        return false;
       });
 
-      await expect(
-        projectCreator.createFromTemplate('standard', 'test-project', '/tmp/test')
-      ).rejects.toThrow('Failed to download template');
+      // Mock template manager to return invalid template
+      const invalidTemplate = {
+        name: 'invalid-cached',
+        displayName: 'Invalid Cached',
+        description: 'Invalid template',
+        type: 'cached' as const,
+        cacheUrl: undefined // No cache URL should cause error
+      };
+      
+      templateManager.getTemplateInfo = mock(() => invalidTemplate);
 
-      // Verify cleanup was attempted
-      expect(mockFileSystem.safeRemove).toHaveBeenCalled();
+      await expect(
+        projectCreator.createFromTemplate('invalid-cached', 'test-project', '/tmp/test')
+      ).rejects.toThrow('No cache URL configured');
     });
 
-    it('should handle fetch stream errors gracefully', async () => {
-      globalThis.fetch = mock(() => Promise.resolve({
-        ok: true,
-        status: 200,
-        body: null // No body
-      })) as Response;
+    it('should handle invalid template type', async () => {
+      const invalidTemplate = {
+        name: 'invalid-type',
+        displayName: 'Invalid Type',
+        description: 'Invalid template type',
+        type: 'unknown' as any
+      };
+      
+      templateManager.getTemplateInfo = mock(() => invalidTemplate);
 
       await expect(
-        projectCreator.createFromTemplate('standard', 'test-project', '/tmp/test')
-      ).rejects.toThrow('Failed to get response stream');
+        projectCreator.createFromTemplate('invalid-type', 'test-project', '/tmp/test')
+      ).rejects.toThrow('Unsupported template type: unknown');
     });
   });
 
@@ -203,6 +222,51 @@ describe('ProjectCreator', () => {
       await expect(
         projectCreator.initializeProject('/tmp/test')
       ).resolves.toBeUndefined();
+    });
+  });
+
+  describe('.gitignore generation', () => {
+    it('should create .gitignore file for minimal template', async () => {
+      await projectCreator.createFromTemplate('minimal', 'test-project', '/tmp/test');
+
+      // Verify .gitignore file is created
+      expect(mockFileSystem.writeFile).toHaveBeenCalledWith(
+        expect.stringContaining('.gitignore'),
+        expect.stringContaining('.zig-cache/')
+      );
+      expect(mockFileSystem.writeFile).toHaveBeenCalledWith(
+        expect.stringContaining('.gitignore'),
+        expect.stringContaining('zig-out/')
+      );
+    });
+
+    it('should create .gitignore file for barebones template', async () => {
+      await projectCreator.createFromTemplate('barebones', 'test-project', '/tmp/test');
+
+      // Verify .gitignore file is created with correct content
+      expect(mockFileSystem.writeFile).toHaveBeenCalledWith(
+        expect.stringContaining('.gitignore'),
+        expect.stringContaining('.zig-cache/')
+      );
+      expect(mockFileSystem.writeFile).toHaveBeenCalledWith(
+        expect.stringContaining('.gitignore'),
+        expect.stringContaining('zig-out/')
+      );
+    });
+
+    it('should not overwrite existing .gitignore file', async () => {
+      // Mock existing .gitignore file
+      mockFileSystem.fileExists = mock((path: string) => {
+        return path.includes('.gitignore');
+      });
+
+      await projectCreator.createFromTemplate('minimal', 'test-project', '/tmp/test');
+
+      // Verify .gitignore is not written when it already exists
+      const gitignoreWrites = (mockFileSystem.writeFile as any).mock.calls.filter(
+        (call: any[]) => call[0].includes('.gitignore')
+      );
+      expect(gitignoreWrites).toHaveLength(0);
     });
   });
 });

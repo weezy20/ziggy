@@ -258,7 +258,8 @@ export class ApplicationFactory {
       }
       const templateManager = await this.container.resolveAsync<ITemplateManager>('templateManager');
       const fileSystemManager = this.container.resolve<IFileSystemManager>('fileSystemManager');
-      return new lazyModules.ProjectCreator(templateManager, fileSystemManager);
+      const platformDetector = this.container.resolve<IPlatformDetector>('platformDetector');
+      return new lazyModules.ProjectCreator(templateManager, fileSystemManager, platformDetector);
     });
   }
 

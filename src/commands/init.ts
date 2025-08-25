@@ -2,6 +2,7 @@ import { resolve } from 'path';
 import { TemplateManager } from '../templates/manager.js';
 import { ProjectCreator } from '../templates/creator.js';
 import { FileSystemManager } from '../utils/filesystem.js';
+import { PlatformDetector } from '../utils/platform.js';
 import { colors } from '../utils/colors.js';
 import { textPrompt, selectPrompt, withProgress } from '../cli/prompts/common.js';
 import { validateProjectName } from '../cli/prompts/validators.js';
@@ -18,7 +19,8 @@ export async function initCommand(projectName?: string): Promise<void> {
   // Initialize template system
   const templateManager = new TemplateManager();
   const fileSystemManager = new FileSystemManager();
-  const projectCreator = new ProjectCreator(templateManager, fileSystemManager);
+  const platformDetector = new PlatformDetector();
+  const projectCreator = new ProjectCreator(templateManager, fileSystemManager, platformDetector);
 
   let targetProjectName = projectName;
 
@@ -50,7 +52,7 @@ export async function initCommand(projectName?: string): Promise<void> {
   const selectedTemplate = await selectPrompt(
     'Choose a project template:',
     templateOptions,
-    'standard',
+    'barebones', // Default to barebones (first option)
     undefined,
     'Project creation cancelled.'
   );
@@ -60,8 +62,8 @@ export async function initCommand(projectName?: string): Promise<void> {
     await withProgress(
       async (updateMessage) => {
         await projectCreator.createFromTemplate(
-          selectedTemplate, 
-          targetProjectName, 
+          selectedTemplate,
+          targetProjectName,
           targetPath,
           updateMessage
         );
@@ -74,7 +76,33 @@ export async function initCommand(projectName?: string): Promise<void> {
     log();
     log(colors.cyan('Next steps:'));
     log(colors.gray(`  cd ${targetProjectName}`));
-    log(colors.gray('  zig build run'));
+    
+    // Show template-specific instructions
+    const templateInfo = templateManager.getTemplateInfo(selectedTemplate);
+    if (templateInfo) {
+      switch (templateInfo.type) {
+        case 'cached': // Barebones template
+          log(colors.gray('  zig build run'));
+          break;
+        case 'lean': // Minimal template with testing harness
+          log(colors.gray('  zig build run'));
+          log(colors.gray('  zig build test'));
+          break;
+        case 'zig-init': // Standard templates
+          log(colors.gray('  zig build run'));
+          if (templateInfo.name === 'standard') {
+            // Standard template may have additional build targets
+            log(colors.gray('  zig build test'));
+          }
+          break;
+        default:
+          log(colors.gray('  zig build run'));
+      }
+    } else {
+      // Fallback for unknown template types
+      log(colors.gray('  zig build run'));
+    }
+
     log();
     log();
     log(colors.yellow('Happy coding!'));
