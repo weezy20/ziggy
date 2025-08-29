@@ -8,12 +8,18 @@ import type { ZiggyConfig, ShellInfo, DownloadProgress, MirrorsConfig } from './
 // Core installer interface
 export interface IZigInstaller {
   downloadVersion(version: string): Promise<void>;
-  useVersion(version: string): void;
+  useVersion(version: string): Promise<void>;
   getInstalledVersions(): string[];
   validateVersion(version: string): Promise<boolean>;
   cleanup(): Promise<void>;
   getCurrentDownload(): { cleanup?: () => void } | null;
   getConfigManager(): IConfigManager;
+  
+  // Cleanup methods
+  cleanExceptCurrent(): Promise<void>;
+  cleanAllVersions(): Promise<void>;
+  selectVersionToKeep(): Promise<void>;
+  removeVersion(version: string): Promise<void>;
 }
 
 // Configuration management interface
@@ -67,6 +73,11 @@ export interface IFileSystemManager {
   isFile(path: string): boolean;
   ensureDirectory(path: string): void;
   safeRemove(path: string, recursive?: boolean): void;
+  
+  // Additional methods for Windows operations
+  copyDirectoryRecursive(source: string, destination: string): Promise<void>;
+  createTempDirectory(prefix?: string): string;
+  moveDirectory(source: string, destination: string): void;
 }
 
 // Archive extraction interface

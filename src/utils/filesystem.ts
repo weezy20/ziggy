@@ -6,7 +6,7 @@
  */
 
 import { existsSync, mkdirSync, rmSync, copyFileSync, statSync, readdirSync, createWriteStream, createReadStream, writeFileSync, readFileSync, appendFileSync } from 'fs';
-import { dirname } from 'path';
+import { dirname, join } from 'path';
 import type { IFileSystemManager } from '../interfaces.js';
 
 /**
@@ -384,6 +384,111 @@ export class FileSystemManager implements IFileSystemManager {
     } catch (error) {
       // Log the error but don't throw - this is for cleanup operations
       console.warn(`Warning: Failed to remove ${path}:`, error);
+    }
+  }
+
+  /**
+   * Recursively copy a directory and all its contents
+   * @param source - The source directory path
+   * @param destination - The destination directory path
+   */
+  async copyDirectoryRecursive(source: string, destination: string): Promise<void> {
+    try {
+      if (!existsSync(source)) {
+        throw new Error(`Source directory does not exist: ${source}`);
+      }
+
+      const sourceStats = statSync(source);
+      if (!sourceStats.isDirectory()) {
+        throw new Error(`Source is not a directory: ${source}`);
+      }
+
+      // Ensure destination directory exists
+      this.createDirectory(destination);
+
+      const items = readdirSync(source);
+
+      for (const item of items) {
+        const sourcePath = join(source, item);
+        const destPath = join(destination, item);
+        const itemStats = statSync(sourcePath);
+
+        if (itemStats.isDirectory()) {
+          // Recursively copy subdirectory
+          await this.copyDirectoryRecursive(sourcePath, destPath);
+        } else {
+          // Copy file
+          this.copyFile(sourcePath, destPath);
+        }
+      }
+    } catch (error) {
+      throw new DirectoryError(
+        `Failed to copy directory from ${source} to ${destination}`,
+        destination,
+        error instanceof Error ? error : new Error(String(error))
+      );
+    }
+  }
+
+  /**
+   * Create a temporary directory with a unique name
+   * @param prefix - Optional prefix for the directory name
+   * @returns The path to the created temporary directory
+   */
+  createTempDirectory(prefix: string = 'temp'): string {
+    try {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const randomId = Math.random().toString(36).substring(2, 8);
+      const tempDirName = `${prefix}-${timestamp}-${randomId}`;
+      
+      // Use system temp directory or current working directory
+      const systemTempDir = process.env.TEMP || process.env.TMP || process.cwd();
+      const tempPath = join(systemTempDir, tempDirName);
+      
+      this.createDirectory(tempPath);
+      return tempPath;
+    } catch (error) {
+      throw new DirectoryError(
+        `Failed to create temporary directory with prefix: ${prefix}`,
+        '',
+        error instanceof Error ? error : new Error(String(error))
+      );
+    }
+  }
+
+  /**
+   * Move a directory from source to destination
+   * @param source - The source directory path
+   * @param destination - The destination directory path
+   */
+  moveDirectory(source: string, destination: string): void {
+    try {
+      if (!existsSync(source)) {
+        throw new Error(`Source directory does not exist: ${source}`);
+      }
+
+      const sourceStats = statSync(source);
+      if (!sourceStats.isDirectory()) {
+        throw new Error(`Source is not a directory: ${source}`);
+      }
+
+      // Ensure destination parent directory exists
+      const destParent = dirname(destination);
+      this.createDirectory(destParent);
+
+      // Use native rename/move operation
+      Bun.spawnSync(['mv', source, destination]);
+
+      // Verify the move was successful
+      if (!existsSync(destination)) {
+        throw new Error('Move operation failed - destination does not exist');
+      }
+    } catch (error) {
+      throw new DirectoryError(
+        `Failed to move directory from ${source} to ${destination}`,
+        destination,
+        error instanceof Error ? error : new Error(String(error))
+      );
     }
   }
 }

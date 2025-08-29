@@ -960,7 +960,7 @@ export PATH="${this.binDir}:$PATH"
  * Application Entry Point
  * Creates the application using dependency injection and starts the CLI
  */
-export function createApplication(): Promise<ZigInstaller> {
+export function createApplication(): Promise<IZigInstaller> {
   const factory = new ApplicationFactory();
   const installer = factory.createZigInstaller();
   

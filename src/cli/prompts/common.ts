@@ -1,5 +1,5 @@
 import * as clack from '@clack/prompts';
-import { colors } from '../../utils/colors.js';
+import { colors } from '../../utils/colors';
 import process from "node:process";
 
 export const log = console.log;

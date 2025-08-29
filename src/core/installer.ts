@@ -19,6 +19,8 @@ import type {
   IArchiveExtractor,
   IMirrorsManager
 } from '../interfaces.js';
+import { ActivationStrategyFactory, type IActivationStrategy } from './activation-strategies.js';
+import { WindowsActivationManager, type IWindowsActivationManager } from './windows-activation.js';
 import type { ZigDownloadIndex, DownloadInfo } from '../types.js';
 import { Buffer } from "node:buffer";
 import process from "node:process";
@@ -35,6 +37,8 @@ export class ZigInstaller implements IZigInstaller {
   private arch: string;
   private platform: string;
   private currentDownload: { cleanup?: () => void } | null = null;
+  private activationStrategy: IActivationStrategy;
+  private windowsActivationManager?: IWindowsActivationManager;
 
   constructor(
     configManager: IConfigManager,
@@ -55,6 +59,31 @@ export class ZigInstaller implements IZigInstaller {
     this.binDir = join(ziggyDir, 'bin');
     this.arch = platformDetector.getArch();
     this.platform = platformDetector.getPlatform();
+    
+    // Initialize activation strategy based on platform
+    this.initializeActivationStrategy();
+  }
+
+  /**
+   * Initialize the appropriate activation strategy based on platform
+   * @private
+   */
+  private initializeActivationStrategy(): void {
+    if (this.platform === 'windows') {
+      // Create Windows activation manager for Windows platform
+      this.windowsActivationManager = new WindowsActivationManager(
+        this.fileSystemManager,
+        this.archiveExtractor,
+        this.ziggyDir
+      );
+    }
+
+    // Create the appropriate activation strategy
+    this.activationStrategy = ActivationStrategyFactory.createStrategy(
+      this.platform,
+      this.fileSystemManager,
+      this.windowsActivationManager
+    );
   }
 
   /**
@@ -128,7 +157,7 @@ export class ZigInstaller implements IZigInstaller {
 
       // Auto-activate this version if no current version is set
       if (!this.versionManager.getCurrentVersion()) {
-        this.createSymlink(installPath, version);
+        await this.createSymlink(installPath, version);
         this.versionManager.setCurrentVersion(version);
         log(colors.green(`✓ Automatically activated Zig ${version} (first installation)`));
       }
@@ -151,7 +180,7 @@ export class ZigInstaller implements IZigInstaller {
   /**
    * Switch to use a specific Zig version
    */
-  public useVersion(version: string): void {
+  public async useVersion(version: string): Promise<void> {
     const config = this.configManager.load();
 
     if (version === 'system') {
@@ -181,7 +210,7 @@ export class ZigInstaller implements IZigInstaller {
             this.configManager.save(finalConfig);
             
             log(colors.green(`✓ Found system Zig at: ${redetectedSystemZig.path}`));
-            this.createSymlink(redetectedSystemZig.path, 'system');
+            await this.createSymlink(redetectedSystemZig.path, 'system');
             this.versionManager.setCurrentVersion('system');
             log(colors.green(`Now using system Zig ${redetectedSystemZig.version}`));
           } else {
@@ -190,7 +219,7 @@ export class ZigInstaller implements IZigInstaller {
           }
         } else {
           // System Zig path is still valid
-          this.createSymlink(config.systemZig.path, 'system');
+          await this.createSymlink(config.systemZig.path, 'system');
           this.versionManager.setCurrentVersion('system');
           log(colors.green(`Now using system Zig ${config.systemZig.version}`));
         }
@@ -205,7 +234,7 @@ export class ZigInstaller implements IZigInstaller {
           this.configManager.save(updatedConfig);
           
           log(colors.green(`✓ Found system Zig at: ${detectedSystemZig.path}`));
-          this.createSymlink(detectedSystemZig.path, 'system');
+          await this.createSymlink(detectedSystemZig.path, 'system');
           this.versionManager.setCurrentVersion('system');
           log(colors.green(`Now using system Zig ${detectedSystemZig.version}`));
         } else {
@@ -220,7 +249,7 @@ export class ZigInstaller implements IZigInstaller {
         throw new Error(`Zig ${version} is not installed`);
       }
       
-      this.createSymlink(info.path, version);
+      await this.createSymlink(info.path, version);
       this.versionManager.setCurrentVersion(version);
       log(colors.green(`Now using Zig ${version}`));
     }
@@ -399,6 +428,63 @@ export class ZigInstaller implements IZigInstaller {
   }
 
   /**
+   * Allow user to select which version to keep and remove all others
+   */
+  public async selectVersionToKeep(): Promise<void> {
+    const config = this.configManager.load();
+    const downloadedVersions = Object.keys(config.downloads).filter(v => {
+      const info = config.downloads[v];
+      return info?.status === 'completed' && v !== 'system';
+    });
+
+    if (downloadedVersions.length === 0) {
+      log(colors.yellow('No versions to clean'));
+      return;
+    }
+
+    if (downloadedVersions.length === 1) {
+      log(colors.yellow('Only one version installed, nothing to clean'));
+      return;
+    }
+
+    // For CLI usage, we'll keep the current version by default
+    // This method is primarily used by the TUI, but we provide a fallback
+    const currentVersion = this.versionManager.getCurrentVersion();
+    const versionToKeep = currentVersion && downloadedVersions.includes(currentVersion) 
+      ? currentVersion 
+      : downloadedVersions[0];
+
+    const versionsToDelete = downloadedVersions.filter(v => v !== versionToKeep);
+
+    log(colors.cyan(`Keeping version: ${versionToKeep}`));
+    log(colors.yellow(`Removing ${versionsToDelete.length} other versions: ${versionsToDelete.join(', ')}`));
+
+    let cleaned = 0;
+    for (const version of versionsToDelete) {
+      const info = config.downloads[version];
+      if (info && this.fileSystemManager.fileExists(info.path)) {
+        try {
+          this.fileSystemManager.safeRemove(info.path);
+          delete config.downloads[version];
+          cleaned++;
+        } catch (error) {
+          log(colors.red(`Failed to remove ${version}: ${error}`));
+        }
+      }
+    }
+
+    // Set the kept version as current if it wasn't already
+    if (this.versionManager.getCurrentVersion() !== versionToKeep) {
+      await this.createSymlink(config.downloads[versionToKeep]!.path, versionToKeep);
+      this.versionManager.setCurrentVersion(versionToKeep);
+    }
+
+    this.configManager.save(config);
+    log(colors.green(`Cleaned up ${cleaned} installations`));
+    log(colors.green(`Kept ${versionToKeep} as active version`));
+  }
+
+  /**
    * Download Zig from the official repository
    * @private
    */
@@ -483,50 +569,14 @@ export class ZigInstaller implements IZigInstaller {
   }
 
   /**
-   * Create symlink for the Zig binary
+   * Activate a Zig version using platform-specific activation strategy
    * @private
    */
-  private createSymlink(targetPath: string, version: string): void {
-    // Determine the actual zig binary path
-    let zigBinary: string;
-    let symlinkTarget: string;
-    const executableName = this.platform === 'windows' ? 'zig.exe' : 'zig';
-
-    if (version === 'system') {
-      // For system installations, targetPath is the direct path to zig binary
-      symlinkTarget = targetPath;
-    } else {
-      // For ziggy managed installations, find the zig binary in the installation
-      zigBinary = join(targetPath, executableName);
-      
-      if (this.fileSystemManager.fileExists(zigBinary)) {
-        symlinkTarget = zigBinary;
-      } else {
-        // Look for extracted installations (subdirectory format)
-        const contents = this.fileSystemManager.listDirectory(targetPath);
-        const zigExtraction = contents.find(item =>
-          item.startsWith('zig-') && this.fileSystemManager.isDirectory(join(targetPath, item))
-        );
-
-        if (zigExtraction) {
-          symlinkTarget = join(targetPath, zigExtraction, executableName);
-        } else {
-          throw new Error(`Zig binary not found in ${targetPath}`);
-        }
-      }
-    }
-
-    // Create symlink
-    const zigBinaryLink = join(this.binDir, executableName);
-    
-    // Remove existing symlink if it exists
-    this.fileSystemManager.safeRemove(zigBinaryLink);
-
-    // Create new symlink
+  private async createSymlink(targetPath: string, version: string): Promise<void> {
     try {
-      this.fileSystemManager.createSymlink(symlinkTarget, zigBinaryLink, this.platform);
+      await this.activationStrategy.activate(targetPath, version, this.binDir);
     } catch (error) {
-      throw new Error(`Failed to create symlink: ${error}`);
+      throw new Error(`Failed to activate Zig ${version}: ${error.message}`);
     }
   }
 

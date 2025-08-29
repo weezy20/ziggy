@@ -37,6 +37,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .zig_install
 ziggy
 ziggy.exe
+myapp
 
-#
 .*

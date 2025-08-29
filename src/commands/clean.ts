@@ -47,13 +47,13 @@ export async function cleanCommand(installer?: IZigInstaller, configManager?: IC
 
   switch (action) {
     case 'clean-all':
-      await (installer as { cleanAllVersions(): Promise<void> }).cleanAllVersions();
+      await installer.cleanAllVersions();
       break;
     case 'clean-except-current':
-      await (installer as { cleanExceptCurrent(): Promise<void> }).cleanExceptCurrent();
+      await installer.cleanExceptCurrent();
       break;
     case 'select-keep':
-      await (installer as { selectVersionToKeep(): Promise<void> }).selectVersionToKeep();
+      await installer.selectVersionToKeep();
       break;
   }
 }
