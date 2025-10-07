@@ -1,4 +1,4 @@
-# Ziggy
+# Ziggy (Deprecated. Use zv @ https://github.com/weezy20/zv)
 
 A fast, easy to use, Zig programming language installer and version manager powered by Bun.
 
@@ -80,4 +80,5 @@ ziggy setup
 Ziggy doesn't install anything on your system except the contents of `ZIGGY_DIR`. You can delete the folder and be done with it. If you want to clean up specific ziggy managed installations use `ziggy clean`. Ziggy will never do anything with your system zig. 
 
 If you used `bun install -g` to install ziggy then you can use `bun remove -g ziggy` to undo the same.
+
 
